@@ -13,7 +13,8 @@ client = AzureOpenAI(
     api_version="2023-05-15"
 )
 
-st.title("Chat con Azure OpenAI")
+st.set_page_config(page_title="Chat con il CdC RAEE")
+st.title("Chat con il CdC RAEE")
 
 # Input da utente
 prompt = st.text_area("Scrivi la tua domanda:")
