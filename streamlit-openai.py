@@ -1,40 +1,55 @@
 import streamlit as st
-from openai import AzureOpenAI
+from azure.identity import ClientSecretCredential
+from openai import OpenAI
+import os
 
-# Inserisci i tuoi dati reali qui:
-AZURE_OPENAI_ENDPOINT = "https://easylookdoc-openai.openai.azure.com/"
-AZURE_OPENAI_KEY = "DWzOqzIuJFKMRcfimbsydMe5nYelzbMeco4ODcPiknmqDdlwCVTFJQQJ99BGACYeBjFXJ3w3AAABACOGmisq"
-DEPLOYMENT_NAME = "gpt-4o"
+# === CONFIGURAZIONE CREDENZIALI AZURE AD ===
+TENANT_ID = os.getenv("AZURE_TENANT_ID", "754c7658-c909-4d49-8871-10c93d970018")
+CLIENT_ID = os.getenv("AZURE_CLIENT_ID", "89ae9197-afd1-4ca6-8d3e-8c63e4f3f1cd")
+CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET", "kZm8Q~Ay4kRfxYKYYz4J02envFEIaQJGjq-u7cdq")
 
-# Client Azure OpenAI con nuova sintassi
-client = AzureOpenAI(
-    azure_endpoint=AZURE_OPENAI_ENDPOINT,
-    api_key=AZURE_OPENAI_KEY,
-    api_version="2023-05-15"
+# === CONFIGURAZIONE AZURE OPENAI ===
+AZURE_OPENAI_ENDPOINT = "https://easylookdoc-openai.openai.azure.com/"  # <- il tuo endpoint
+DEPLOYMENT_NAME = "gpt-4o"  # <- il nome del deployment configurato
+API_VERSION = "2024-05-01-preview"  # <- compatibile con gpt-4o
+
+# === OTTIENI ACCESS TOKEN DA AZURE AD ===
+credential = ClientSecretCredential(
+    tenant_id=TENANT_ID,
+    client_id=CLIENT_ID,
+    client_secret=CLIENT_SECRET
+)
+token = credential.get_token("https://cognitiveservices.azure.com/.default")
+
+# === CREA CLIENT OPENAI CON IL TOKEN ===
+client = OpenAI(
+    api_key=token.token,
+    base_url=f"{AZURE_OPENAI_ENDPOINT}openai/deployments/{DEPLOYMENT_NAME}",
+    default_headers={"api-key": token.token},
+    default_query={"api-version": API_VERSION},
 )
 
-st.set_page_config(page_title="Chat con il CdC RAEE")
-st.title("Chat con il CdC RAEE")
+# === INTERFACCIA STREAMLIT ===
+st.set_page_config(page_title="EasyLookDOC", layout="centered")
+st.title("💬 Chat AI con Azure OpenAI (via Azure AD)")
 
-# Input da utente
 prompt = st.text_area("Scrivi la tua domanda:")
 
 if st.button("Invia"):
-    if prompt.strip() == "":
-        st.warning("Inserisci un prompt prima di inviare.")
+    if not prompt.strip():
+        st.warning("⚠️ Inserisci prima una domanda.")
     else:
         try:
-            # Nuova chiamata API compatibile con openai>=1.0.0
             response = client.chat.completions.create(
                 model=DEPLOYMENT_NAME,
                 messages=[
                     {"role": "system", "content": "Sei un assistente utile."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=500,
                 temperature=0.7,
+                max_tokens=500,
             )
             answer = response.choices[0].message.content
             st.success(answer)
         except Exception as e:
-            st.error(f"Errore nella chiamata API: {e}")
+            st.error(f"❌ Errore nella chiamata API:\n\n{e}")
