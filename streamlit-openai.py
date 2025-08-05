@@ -2,6 +2,7 @@ import streamlit as st
 from azure.identity import ClientSecretCredential
 from openai import OpenAI
 import os
+from PIL import Image
 
 # === CONFIGURAZIONE CREDENZIALI AZURE AD ===
 TENANT_ID = os.getenv("AZURE_TENANT_ID", "754c7658-c909-4d49-8871-10c93d970018")
@@ -30,6 +31,9 @@ client = OpenAI(
 )
 
 # === INTERFACCIA STREAMLIT ===
+logo = Image.open("images/Logo EasyLookDOC.png")
+st.image(logo, width=250)
+
 st.set_page_config(page_title="EasyLookDOC", layout="centered")
 st.title("💬 Chat AI con Azure OpenAI (via Azure AD)")
 
