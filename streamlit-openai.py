@@ -23,12 +23,13 @@ credential = ClientSecretCredential(
 token = credential.get_token("https://cognitiveservices.azure.com/.default")
 
 # === CREA CLIENT OPENAI CON IL TOKEN ===
+
 client = OpenAI(
-    api_key=token.token,
-    base_url=f"{AZURE_OPENAI_ENDPOINT}openai/deployments/{DEPLOYMENT_NAME}",
-    default_headers={"api-key": token.token},
+    base_url=f"{AZURE_OPENAI_ENDPOINT}openai/deployments/{DEPLOYMENT_NAME}/",
+    default_headers={"Authorization": f"Bearer {token.token}"},
     default_query={"api-version": API_VERSION},
 )
+
 
 # === INTERFACCIA STREAMLIT ===
 logo = Image.open("images/Logo EasyLookDOC.png")
