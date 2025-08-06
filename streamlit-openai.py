@@ -7,7 +7,7 @@ st.write("Deployment:", DEPLOYMENT_NAME)
 st.write("API Version:", API_VERSION)
 
 from azure.identity import ClientSecretCredential
-from openai import OpenAI
+from openai import AzureOpenAI
 import os
 from PIL import Image
 
@@ -17,7 +17,7 @@ CLIENT_ID = os.getenv("AZURE_CLIENT_ID", "89ae9197-afd1-4ca6-8c63e4f3f1cd")
 CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET", "kZm8Q~Ay4kRfxYKYYz4J02envFEIaQJGjq-u7cdq")
 
 # === CONFIGURAZIONE AZURE OPENAI ===
-AZURE_OPENAI_ENDPOINT = "https://easylookdoc-openai.openai.azure.com"
+AZURE_OPENAI_ENDPOINT = "https://easylookdoc-openai.openai.azure.com/"
 DEPLOYMENT_NAME = "gpt-4o"
 API_VERSION = "2023-05-15"
 
@@ -29,9 +29,9 @@ credential = ClientSecretCredential(
 )
 
 # === CREA CLIENT OPENAI CON CREDENZIALE AZURE AD ===
-client = OpenAI(
-    base_url=AZURE_OPENAI_ENDPOINT,
+client = AzureOpenAI(
     api_version=API_VERSION,
+    azure_endpoint=AZURE_OPENAI_ENDPOINT,
     credential=credential
 )
 
@@ -50,14 +50,14 @@ if st.button("Invia"):
     else:
         try:
             response = client.chat.completions.create(
-                deployment_id=DEPLOYMENT_NAME,
-                messages=[
-                    {"role": "system", "content": "Sei un assistente utile."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=500,
-            )
+            model=DEPLOYMENT_NAME,
+            messages=[
+            {"role": "system", "content": "Sei un assistente utile."},
+            {"role": "user", "content": prompt}
+          ],
+          temperature=0.7,
+          max_tokens=500,
+)
             answer = response.choices[0].message.content
             st.success(answer)
         except Exception as e:
