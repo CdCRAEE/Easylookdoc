@@ -1,4 +1,11 @@
 import streamlit as st
+st.write("Tenant ID:", TENANT_ID)
+st.write("Client ID:", CLIENT_ID)
+st.write("Client Secret:", "****" if CLIENT_SECRET else "NON SETTATO")
+st.write("Endpoint:", AZURE_OPENAI_ENDPOINT)
+st.write("Deployment:", DEPLOYMENT_NAME)
+st.write("API Version:", API_VERSION)
+
 from azure.identity import ClientSecretCredential
 from openai import OpenAI
 import os
@@ -10,9 +17,9 @@ CLIENT_ID = os.getenv("AZURE_CLIENT_ID", "89ae9197-afd1-4ca6-8c63e4f3f1cd")
 CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET", "kZm8Q~Ay4kRfxYKYYz4J02envFEIaQJGjq-u7cdq")
 
 # === CONFIGURAZIONE AZURE OPENAI ===
-AZURE_OPENAI_ENDPOINT = "https://easylookdoc-openai.openai.azure.com/"
+AZURE_OPENAI_ENDPOINT = "https://easylookdoc-openai.openai.azure.com"
 DEPLOYMENT_NAME = "gpt-4o"
-API_VERSION = "2024-05-01-preview"
+API_VERSION = "2023-05-15"
 
 # === CREA CREDENZIALE AZURE AD ===
 credential = ClientSecretCredential(
