@@ -6,30 +6,27 @@ from PIL import Image
 
 # === CONFIGURAZIONE CREDENZIALI AZURE AD ===
 TENANT_ID = os.getenv("AZURE_TENANT_ID", "754c7658-c909-4d49-8871-10c93d970018")
-CLIENT_ID = os.getenv("AZURE_CLIENT_ID", "89ae9197-afd1-4ca6-8d3e-8c63e4f3f1cd")
+CLIENT_ID = os.getenv("AZURE_CLIENT_ID", "89ae9197-afd1-4ca6-8c63e4f3f1cd")
 CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET", "kZm8Q~Ay4kRfxYKYYz4J02envFEIaQJGjq-u7cdq")
 
 # === CONFIGURAZIONE AZURE OPENAI ===
-AZURE_OPENAI_ENDPOINT = "https://easylookdoc-openai.openai.azure.com/"  # <- il tuo endpoint
-DEPLOYMENT_NAME = "gpt-4o"  # <- il nome del deployment configurato
-API_VERSION = "2024-05-01-preview"  # <- compatibile con gpt-4o
+AZURE_OPENAI_ENDPOINT = "https://easylookdoc-openai.openai.azure.com/"
+DEPLOYMENT_NAME = "gpt-4o"
+API_VERSION = "2024-05-01-preview"
 
-# === OTTIENI ACCESS TOKEN DA AZURE AD ===
+# === CREA CREDENZIALE AZURE AD ===
 credential = ClientSecretCredential(
     tenant_id=TENANT_ID,
     client_id=CLIENT_ID,
     client_secret=CLIENT_SECRET
 )
-token = credential.get_token("https://cognitiveservices.azure.com/.default")
 
-# === CREA CLIENT OPENAI CON IL TOKEN ===
-
+# === CREA CLIENT OPENAI CON CREDENZIALE AZURE AD ===
 client = OpenAI(
-    base_url=f"{AZURE_OPENAI_ENDPOINT}openai/deployments/{DEPLOYMENT_NAME}/",
-    default_headers={"Authorization": f"Bearer {token.token}"},
-    default_query={"api-version": API_VERSION},
+    base_url=AZURE_OPENAI_ENDPOINT,
+    api_version=API_VERSION,
+    credential=credential
 )
-
 
 # === INTERFACCIA STREAMLIT ===
 logo = Image.open("images/Logo EasyLookDOC.png")
@@ -46,7 +43,7 @@ if st.button("Invia"):
     else:
         try:
             response = client.chat.completions.create(
-                model=DEPLOYMENT_NAME,
+                deployment_id=DEPLOYMENT_NAME,
                 messages=[
                     {"role": "system", "content": "Sei un assistente utile."},
                     {"role": "user", "content": prompt}
@@ -58,3 +55,4 @@ if st.button("Invia"):
             st.success(answer)
         except Exception as e:
             st.error(f"❌ Errore nella chiamata API:\n\n{e}")
+Sp
