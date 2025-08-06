@@ -1,5 +1,1 @@
-<<<<<<< HEAD
 streamlit run streamlit-openai.py --server.port=8000 --server.address=0.0.0.0 --server.enableCORS=false
-=======
-streamlit run streamlit-openai.py --server.port=8000 --server.address=0.0.0.0 --server.enableCORS=false
->>>>>>> 244dcde34a59c9954e053c2d2bb3d4ef416c452f
