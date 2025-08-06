@@ -1,25 +1,26 @@
 import streamlit as st
+import os
+from azure.identity import ClientSecretCredential
+from openai import AzureOpenAI
+from PIL import Image
+
+# === CONFIGURAZIONE CREDENZIALI AZURE AD ===
+TENANT_ID = os.getenv("AZURE_TENANT_ID")
+CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
+CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET")
+
+# === CONFIGURAZIONE AZURE OPENAI ===
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
+DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
+API_VERSION = "2024-05-01-preview"
+
+# === DEBUG VARIABILI AMBIENTE ===
 st.write("Tenant ID:", TENANT_ID)
 st.write("Client ID:", CLIENT_ID)
 st.write("Client Secret:", "****" if CLIENT_SECRET else "NON SETTATO")
 st.write("Endpoint:", AZURE_OPENAI_ENDPOINT)
 st.write("Deployment:", DEPLOYMENT_NAME)
 st.write("API Version:", API_VERSION)
-
-from azure.identity import ClientSecretCredential
-from openai import AzureOpenAI
-import os
-from PIL import Image
-
-# === CONFIGURAZIONE CREDENZIALI AZURE AD ===
-TENANT_ID = os.getenv("AZURE_TENANT_ID", "754c7658-c909-4d49-8871-10c93d970018")
-CLIENT_ID = os.getenv("AZURE_CLIENT_ID", "89ae9197-afd1-4ca6-8c63e4f3f1cd")
-CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET", "kZm8Q~Ay4kRfxYKYYz4J02envFEIaQJGjq-u7cdq")
-
-# === CONFIGURAZIONE AZURE OPENAI ===
-AZURE_OPENAI_ENDPOINT = "https://easylookdoc-openai.openai.azure.com/"
-DEPLOYMENT_NAME = "gpt-4o"
-API_VERSION = "2023-05-15"
 
 # === CREA CREDENZIALE AZURE AD ===
 credential = ClientSecretCredential(
@@ -50,14 +51,14 @@ if st.button("Invia"):
     else:
         try:
             response = client.chat.completions.create(
-            model=DEPLOYMENT_NAME,
-            messages=[
-            {"role": "system", "content": "Sei un assistente utile."},
-            {"role": "user", "content": prompt}
-          ],
-          temperature=0.7,
-          max_tokens=500,
-)
+                deployment_id=DEPLOYMENT_NAME,
+                messages=[
+                    {"role": "system", "content": "Sei un assistente utile."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=500,
+            )
             answer = response.choices[0].message.content
             st.success(answer)
         except Exception as e:
