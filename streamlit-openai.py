@@ -55,4 +55,3 @@ if st.button("Invia"):
             st.success(answer)
         except Exception as e:
             st.error(f"❌ Errore nella chiamata API:\n\n{e}")
-Sp
