@@ -1,50 +1,49 @@
 import streamlit as st
 import os
 from azure.identity import DefaultAzureCredential
-from azure.ai.openai import get_bearer_token_provider, AzureOpenAI
+from azure.ai.openai import AzureOpenAI
 from PIL import Image
 
-# === CONFIGURAZIONE CREDENZIALI AZURE AD ===
+# === CONFIGURAZIONE VARIABILI AMBIENTE ===
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
 CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET")
-
-# === CONFIGURAZIONE AZURE OPENAI ===
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
 DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
 API_VERSION = "2024-05-01-preview"
 
-# === DEBUG VARIABILI AMBIENTE ===
-st.write("Tenant ID:", TENANT_ID)
-st.write("Client ID:", CLIENT_ID)
-st.write("Client Secret:", "****" if CLIENT_SECRET else "NON SETTATO")
-st.write("Endpoint:", AZURE_OPENAI_ENDPOINT)
-st.write("Deployment:", DEPLOYMENT_NAME)
-st.write("API Version:", API_VERSION)
+# === DEBUG: VISUALIZZA VARIABILI AMBIENTE ===
+with st.expander("🔧 Debug Variabili Ambiente"):
+    st.write("Tenant ID:", TENANT_ID or "❌ MANCANTE")
+    st.write("Client ID:", CLIENT_ID or "❌ MANCANTE")
+    st.write("Client Secret:", "✅" if CLIENT_SECRET else "❌ MANCANTE")
+    st.write("Endpoint:", AZURE_OPENAI_ENDPOINT or "❌ MANCANTE")
+    st.write("Deployment:", DEPLOYMENT_NAME)
+    st.write("API Version:", API_VERSION)
 
-# === CREA CREDENZIALE AZURE AD ===
-token_provider = get_bearer_token_provider(
-    DefaultAzureCredential(),
-    "https://cognitiveservices.azure.com/.default"
-)
-
-# === CREA CLIENT OPENAI CON CREDENZIALE AZURE AD ===
-client = AzureOpenAI(
-    api_version="2024-05-01-preview",
-    azure_endpoint=AZURE_OPENAI_ENDPOINT,
-    azure_ad_token_provider=token_provider,
-)
+# === CREA CLIENT AZURE OPENAI AUTENTICATO CON AZURE AD ===
+try:
+    client = AzureOpenAI(
+        api_version=API_VERSION,
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        credential=DefaultAzureCredential()
+    )
+except Exception as e:
+    st.error(f"❌ Errore durante la creazione del client Azure OpenAI: {e}")
+    st.stop()
 
 # === INTERFACCIA STREAMLIT ===
-logo = Image.open("images/Logo EasyLookDOC.png")
-st.image(logo, width=250)
-
 st.set_page_config(page_title="EasyLookDOC", layout="centered")
+
+if os.path.exists("images/Logo EasyLookDOC.png"):
+    logo = Image.open("images/Logo EasyLookDOC.png")
+    st.image(logo, width=250)
+
 st.title("💬 Chat AI con Azure OpenAI (via Azure AD)")
 
-prompt = st.text_area("Scrivi la tua domanda:")
+prompt = st.text_area("✏️ Scrivi la tua domanda:")
 
-if st.button("Invia"):
+if st.button("📤 Invia"):
     if not prompt.strip():
         st.warning("⚠️ Inserisci prima una domanda.")
     else:
@@ -61,4 +60,4 @@ if st.button("Invia"):
             answer = response.choices[0].message.content
             st.success(answer)
         except Exception as e:
-            st.error(f"❌ Errore nella chiamata API:\n\n{e}")
+            st.error(f"❌ Errore nella chiamata Azure OpenAI:\n\n{e}")
