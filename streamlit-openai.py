@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 from azure.identity import DefaultAzureCredential
-from azure.ai.openai import AzureOpenAI
+from azure.openai import OpenAIClient
 from PIL import Image
 
 # === CONFIGURAZIONE VARIABILI AMBIENTE ===
@@ -23,9 +23,8 @@ with st.expander("🔧 Debug Variabili Ambiente"):
 
 # === CREA CLIENT AZURE OPENAI AUTENTICATO CON AZURE AD ===
 try:
-    client = AzureOpenAI(
-        api_version=API_VERSION,
-        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+    client = OpenAIClient(
+        endpoint=AZURE_OPENAI_ENDPOINT,
         credential=DefaultAzureCredential()
     )
 except Exception as e:
@@ -48,8 +47,8 @@ if st.button("📤 Invia"):
         st.warning("⚠️ Inserisci prima una domanda.")
     else:
         try:
-            response = client.chat.completions.create(
-                deployment_id=DEPLOYMENT_NAME,
+            response = client.chat_completions.create(
+                model=DEPLOYMENT_NAME,
                 messages=[
                     {"role": "system", "content": "Sei un assistente utile."},
                     {"role": "user", "content": prompt}
