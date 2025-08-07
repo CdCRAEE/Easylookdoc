@@ -42,7 +42,6 @@ st.image(logo, width=250)
 st.set_page_config(page_title="EasyLookDOC", layout="centered")
 st.title("💬 Chat AI con Azure OpenAI (via Azure AD)")
 
-
 prompt = st.text_area("Scrivi la tua domanda:")
 
 if st.button("Invia"):
