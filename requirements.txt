@@ -1,7 +1,4 @@
 streamlit==1.48.0
 openai>=1.0.0
 azure-identity>=1.16.0
-azure-ai-ml>=1.16.0
-azure-ai-openai>=1.0.0
-Pillow
 #
