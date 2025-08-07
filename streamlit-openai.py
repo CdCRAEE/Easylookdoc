@@ -4,7 +4,6 @@ from azure.identity import DefaultAzureCredential
 from openai import get_bearer_token_provider
 from PIL import Image
 
-
 # === CONFIGURAZIONE CREDENZIALI AZURE AD ===
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
 CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
@@ -16,7 +15,6 @@ DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
 API_VERSION = "2024-05-01-preview"
 
 # === DEBUG VARIABILI AMBIENTE ===
-
 st.write("Tenant ID:", TENANT_ID)
 st.write("Client ID:", CLIENT_ID)
 st.write("Client Secret:", "****" if CLIENT_SECRET else "NON SETTATO")
