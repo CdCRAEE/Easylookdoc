@@ -15,6 +15,7 @@ DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
 API_VERSION = "2024-05-01-preview"
 
 # === DEBUG VARIABILI AMBIENTE ===
+
 st.write("Tenant ID:", TENANT_ID)
 st.write("Client ID:", CLIENT_ID)
 st.write("Client Secret:", "****" if CLIENT_SECRET else "NON SETTATO")
@@ -42,6 +43,9 @@ st.image(logo, width=250)
 
 st.set_page_config(page_title="EasyLookDOC", layout="centered")
 st.title("💬 Chat AI con Azure OpenAI (via Azure AD)")
+
+st.title("Test Debug Streamlit")
+st.write("Se vedi questo testo, Streamlit funziona correttamente.")
 
 prompt = st.text_area("Scrivi la tua domanda:")
 
