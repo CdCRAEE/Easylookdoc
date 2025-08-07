@@ -1,8 +1,9 @@
 import streamlit as st
 import os
-from azure.identity import ClientSecretCredential
-from openai import AzureOpenAI
+from azure.identity import DefaultAzureCredential
+from openai import get_bearer_token_provider
 from PIL import Image
+
 
 # === CONFIGURAZIONE CREDENZIALI AZURE AD ===
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
@@ -24,17 +25,16 @@ st.write("Deployment:", DEPLOYMENT_NAME)
 st.write("API Version:", API_VERSION)
 
 # === CREA CREDENZIALE AZURE AD ===
-credential = ClientSecretCredential(
-    tenant_id=TENANT_ID,
-    client_id=CLIENT_ID,
-    client_secret=CLIENT_SECRET
+token_provider = get_bearer_token_provider(
+    DefaultAzureCredential(),
+    "https://cognitiveservices.azure.com/.default"
 )
 
 # === CREA CLIENT OPENAI CON CREDENZIALE AZURE AD ===
 client = AzureOpenAI(
-    api_version=API_VERSION,
+    api_version="2024-05-01-preview",
     azure_endpoint=AZURE_OPENAI_ENDPOINT,
-    credential=credential
+    azure_ad_token_provider=token_provider,
 )
 
 # === INTERFACCIA STREAMLIT ===
@@ -44,8 +44,6 @@ st.image(logo, width=250)
 st.set_page_config(page_title="EasyLookDOC", layout="centered")
 st.title("💬 Chat AI con Azure OpenAI (via Azure AD)")
 
-st.title("Test Debug Streamlit")
-st.write("Se vedi questo testo, Streamlit funziona correttamente.")
 
 prompt = st.text_area("Scrivi la tua domanda:")
 
