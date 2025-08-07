@@ -1,5 +1,7 @@
 streamlit
 openai>=1.0.0
+azure-identity
 python-dotenv
 requests
+Pillow
 #
