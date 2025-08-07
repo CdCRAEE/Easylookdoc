@@ -1,5 +1,6 @@
 streamlit
 openai>=1.0.0
+azure-ai-openai
 azure-identity
 python-dotenv
 requests
