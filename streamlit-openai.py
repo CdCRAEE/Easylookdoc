@@ -1,7 +1,7 @@
 import streamlit as st
 import os
 from azure.identity import DefaultAzureCredential
-from openai import get_bearer_token_provider
+from azure.ai.openai import get_bearer_token_provider, AzureOpenAI
 from PIL import Image
 
 # === CONFIGURAZIONE CREDENZIALI AZURE AD ===
