@@ -29,13 +29,19 @@ try:
         exclude_interactive_browser_credential=False
     )
     token = credential.get_token("https://cognitiveservices.azure.com/.default")
-    openai.api_type = "azure_ad"
-    openai.api_base = AZURE_OPENAI_ENDPOINT
-    openai.api_version = API_VERSION
-    openai.api_key = token.token
 except Exception as e:
     st.error(f"❌ Errore autenticazione Azure AD:\n{e}")
     st.stop()
+
+# === INIZIALIZZA CLIENT OPENAI ===
+client = OpenAI(
+    api_key=token.token,
+    api_type="azure_ad",
+    api_base=AZURE_OPENAI_ENDPOINT,
+    api_version=API_VERSION,
+)
+
+
 
 # === UI ===
 st.set_page_config(page_title="EasyLookDOC", layout="centered")
@@ -52,8 +58,8 @@ if st.button("📤 Invia"):
         st.warning("⚠️ Inserisci una domanda.")
     else:
         try:
-            response = openai.ChatCompletion.create(
-                deployment_id=DEPLOYMENT_NAME,
+            response = client.chat.completions.create(
+                model=DEPLOYMENT_NAME,
                 messages=[
                     {"role": "system", "content": "Sei un assistente utile."},
                     {"role": "user", "content": prompt}
@@ -61,6 +67,6 @@ if st.button("📤 Invia"):
                 temperature=0.7,
                 max_tokens=500,
             )
-            st.success(response.choices[0].message["content"])
+            st.success(response.choices[0].message.content)
         except Exception as e:
             st.error(f"❌ Errore nella risposta AI:\n{e}")
