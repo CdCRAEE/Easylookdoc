@@ -1,6 +1,7 @@
 import streamlit as st
 import os
 from openai import OpenAI
+print("OpenAI:", OpenAI)
 from azure.identity import DefaultAzureCredential
 
 # === CONFIGURAZIONE VARIABILI ===
