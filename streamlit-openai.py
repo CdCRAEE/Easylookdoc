@@ -22,7 +22,12 @@ with st.expander("🔧 Debug Variabili Ambiente"):
 
 # === CREDENZIALI AZURE AD ===
 try:
-    credential = DefaultAzureCredential()
+    credential = DefaultAzureCredential(
+        exclude_managed_identity_credential=True,
+        exclude_visual_studio_code_credential=True,
+        exclude_shared_token_cache_credential=True,
+        exclude_interactive_browser_credential=False
+    )
     token = credential.get_token("https://cognitiveservices.azure.com/.default")
     openai.api_type = "azure_ad"
     openai.api_base = AZURE_OPENAI_ENDPOINT
