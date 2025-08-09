@@ -30,7 +30,7 @@ try:
         exclude_shared_token_cache_credential=True,
         exclude_interactive_browser_credential=False
     )
-    token = credential.get_token("https://easylookdoc-openai.openai.azure.com/.default")
+    token = credential.get_token(f"{AZURE_OPENAI_ENDPOINT}/.default")
     st.write("✅ Token ottenuto")
 
     decoded = jwt.decode(token.token, options={"verify_signature": False})
