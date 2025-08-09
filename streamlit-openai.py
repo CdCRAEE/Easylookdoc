@@ -1,7 +1,6 @@
 import streamlit as st
 import os
-from openai import OpenAI
-print("OpenAI:", OpenAI)
+import openai
 from azure.identity import DefaultAzureCredential
 
 # === CONFIGURAZIONE VARIABILI ===
@@ -12,7 +11,7 @@ AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
 DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
 API_VERSION = "2024-05-01-preview"
 
-# === DEBUG ===
+# === DEBUG VARIABILI AMBIENTE ===
 with st.expander("🔧 Debug Variabili Ambiente"):
     st.write("Tenant ID:", TENANT_ID or "❌ MANCANTE")
     st.write("Client ID:", CLIENT_ID or "❌ MANCANTE")
@@ -21,34 +20,27 @@ with st.expander("🔧 Debug Variabili Ambiente"):
     st.write("Deployment:", DEPLOYMENT_NAME)
     st.write("API Version:", API_VERSION)
 
-# === CREDENZIALI AZURE AD ===
+# === OTTIENI TOKEN AZURE AD ===
 try:
-    credential = DefaultAzureCredential(
-        exclude_managed_identity_credential=True,
-        exclude_visual_studio_code_credential=True,
-        exclude_shared_token_cache_credential=True,
-        exclude_interactive_browser_credential=False
-    )
+    credential = DefaultAzureCredential()
     token = credential.get_token("https://cognitiveservices.azure.com/.default")
 except Exception as e:
     st.error(f"❌ Errore autenticazione Azure AD:\n{e}")
     st.stop()
 
-# === INIZIALIZZA CLIENT OPENAI ===
-client = OpenAI(
-    api_key=token.token,
-    api_type="azure_ad",
-    api_base=AZURE_OPENAI_ENDPOINT,
-    api_version=API_VERSION,
-)
+# === CONFIGURA OPENAI ===
+openai.api_type = "azure_ad"
+openai.api_base = AZURE_OPENAI_ENDPOINT
+openai.api_version = API_VERSION
+openai.api_key = token.token  # usa il token Azure AD come api_key
 
-# === UI ===
+# === STREAMLIT UI ===
 st.set_page_config(page_title="EasyLookDOC", layout="centered")
 
 if os.path.exists("images/Logo EasyLookDOC.png"):
     st.image("images/Logo EasyLookDOC.png", width=250)
 
-st.title("💬 AI Chat con il CdC RAEE")
+st.title("💬 EasyLookDOC Chat AI")
 
 prompt = st.text_area("✏️ Scrivi la tua domanda:")
 
@@ -57,7 +49,7 @@ if st.button("📤 Invia"):
         st.warning("⚠️ Inserisci una domanda.")
     else:
         try:
-            response = client.chat.completions.create(
+            response = openai.chat.completions.create(
                 deployment_id=DEPLOYMENT_NAME,
                 messages=[
                     {"role": "system", "content": "Sei un assistente utile."},
