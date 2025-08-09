@@ -1,7 +1,9 @@
 import streamlit as st
 import os
 import openai
+import jwt
 from azure.identity import DefaultAzureCredential
+import requests
 
 # === Variabili ambiente ===
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
@@ -29,6 +31,13 @@ try:
         exclude_interactive_browser_credential=False
     )
     token = credential.get_token("https://cognitiveservices.azure.com/.default")
+    st.write("✅ Token ottenuto")
+
+    decoded = jwt.decode(token.token, options={"verify_signature": False})
+    st.write(f"Issuer: {decoded.get('iss')}")
+    st.write(f"Tenant ID: {decoded.get('tid')}")
+    st.write(f"Expires at: {decoded.get('exp')}")
+    st.write(f"Audience: {decoded.get('aud')}")
 except Exception as e:
     st.error(f"❌ Errore autenticazione Azure AD:\n{e}")
     st.stop()
@@ -63,6 +72,6 @@ if st.button("📤 Invia"):
                 temperature=0.7,
                 max_tokens=500,
             )
-            st.success(response.choices[0].message["content"])
+            st.success(response.choices[0].message.content)
         except Exception as e:
             st.error(f"❌ Errore nella risposta AI:\n{e}")
