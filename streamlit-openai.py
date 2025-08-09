@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-import openai
+from openai import OpenAI
 from azure.identity import DefaultAzureCredential
 
 # === CONFIGURAZIONE VARIABILI ===
@@ -41,15 +41,13 @@ client = OpenAI(
     api_version=API_VERSION,
 )
 
-
-
 # === UI ===
 st.set_page_config(page_title="EasyLookDOC", layout="centered")
 
 if os.path.exists("images/Logo EasyLookDOC.png"):
     st.image("images/Logo EasyLookDOC.png", width=250)
 
-st.title("💬 EasyLookDOC Chat AI")
+st.title("💬 AI Chat con il CdC RAEE")
 
 prompt = st.text_area("✏️ Scrivi la tua domanda:")
 
@@ -59,7 +57,7 @@ if st.button("📤 Invia"):
     else:
         try:
             response = client.chat.completions.create(
-                model=DEPLOYMENT_NAME,
+                deployment_id=DEPLOYMENT_NAME,
                 messages=[
                     {"role": "system", "content": "Sei un assistente utile."},
                     {"role": "user", "content": prompt}
