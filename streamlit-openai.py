@@ -55,7 +55,7 @@ if st.button("📤 Invia"):
     else:
         try:
             response = openai.chat.completions.create(
-                deployment_id=DEPLOYMENT_NAME,
+                model=DEPLOYMENT_NAME,
                 messages=[
                     {"role": "system", "content": "Sei un assistente utile."},
                     {"role": "user", "content": prompt}
