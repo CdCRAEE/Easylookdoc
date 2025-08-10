@@ -2,7 +2,12 @@ import streamlit as st
 import os
 import openai
 import jwt
-from azure.identity import DefaultAzureCredential
+from azure.identity import (
+    DefaultAzureCredential,
+    ManagedIdentityCredential,
+    ClientSecretCredential,
+)
+from azure.core.exceptions import ClientAuthenticationError
 
 # === Variabili ambiente ===
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
@@ -12,35 +17,26 @@ AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
 DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
 API_VERSION = "2024-05-01-preview"
 
-# === Debug variabili ===
-with st.expander("🔧 Debug Variabili Ambiente"):
-    st.write("Tenant ID:", TENANT_ID or "❌ MANCANTE")
-    st.write("Client ID:", CLIENT_ID or "❌ MANCANTE")
-    st.write("Client Secret:", "✅" if CLIENT_SECRET else "❌ MANCANTE")
-    st.write("Endpoint:", AZURE_OPENAI_ENDPOINT or "❌ MANCANTE")
-    st.write("Deployment:", DEPLOYMENT_NAME)
-    st.write("API Version:", API_VERSION)
-    st.write("Running on Azure App Service:", bool(os.getenv("WEBSITE_INSTANCE_ID")))
+# === Funzione per capire se siamo in locale o cloud (App Service) ===
+def is_running_in_azure():
+    # Se c'è la variabile Azure App Service 'WEBSITE_INSTANCE_ID' siamo in cloud
+    return os.getenv("WEBSITE_INSTANCE_ID") is not None
 
-# === Configura credential ===
-if os.getenv("WEBSITE_INSTANCE_ID"):
-    # Siamo su Azure App Service: usa Managed Identity
-    credential = DefaultAzureCredential(
-        exclude_visual_studio_code_credential=True,
-        exclude_shared_token_cache_credential=True,
-        exclude_interactive_browser_credential=True
-    )
-else:
-    # Siamo in locale: escludi Managed Identity (non disponibile in locale)
-    credential = DefaultAzureCredential(
-        exclude_managed_identity_credential=True,
-        exclude_visual_studio_code_credential=True,
-        exclude_shared_token_cache_credential=True,
-        exclude_interactive_browser_credential=False
-    )
+# === Ottieni credenziale in base all'ambiente ===
+def get_credential():
+    if is_running_in_azure():
+        st.info("🔵 Esecuzione in cloud: uso ManagedIdentityCredential")
+        return ManagedIdentityCredential()
+    else:
+        st.info("🟠 Esecuzione in locale: uso ClientSecretCredential")
+        if not (TENANT_ID and CLIENT_ID and CLIENT_SECRET):
+            st.error("❌ Variabili AZURE_TENANT_ID, AZURE_CLIENT_ID e AZURE_CLIENT_SECRET devono essere definite in locale!")
+            st.stop()
+        return ClientSecretCredential(tenant_id=TENANT_ID, client_id=CLIENT_ID, client_secret=CLIENT_SECRET)
 
 # === Ottieni token da Azure AD ===
 try:
+    credential = get_credential()
     token = credential.get_token("https://cognitiveservices.azure.com/.default")
     st.write("✅ Token ottenuto")
 
@@ -49,8 +45,11 @@ try:
     st.write(f"Tenant ID: {decoded.get('tid')}")
     st.write(f"Expires at: {decoded.get('exp')}")
     st.write(f"Audience: {decoded.get('aud')}")
-except Exception as e:
+except ClientAuthenticationError as e:
     st.error(f"❌ Errore autenticazione Azure AD:\n{e}")
+    st.stop()
+except Exception as e:
+    st.error(f"❌ Errore generico:\n{e}")
     st.stop()
 
 # === Configura openai ===
