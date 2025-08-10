@@ -3,7 +3,6 @@ import os
 import openai
 import jwt
 from azure.identity import DefaultAzureCredential
-import requests
 
 # === Variabili ambiente ===
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
@@ -21,16 +20,28 @@ with st.expander("🔧 Debug Variabili Ambiente"):
     st.write("Endpoint:", AZURE_OPENAI_ENDPOINT or "❌ MANCANTE")
     st.write("Deployment:", DEPLOYMENT_NAME)
     st.write("API Version:", API_VERSION)
+    st.write("Running on Azure App Service:", bool(os.getenv("WEBSITE_INSTANCE_ID")))
 
-# === Ottieni token da Azure AD ===
-try:
+# === Configura credential ===
+if os.getenv("WEBSITE_INSTANCE_ID"):
+    # Siamo su Azure App Service: usa Managed Identity
+    credential = DefaultAzureCredential(
+        exclude_visual_studio_code_credential=True,
+        exclude_shared_token_cache_credential=True,
+        exclude_interactive_browser_credential=True
+    )
+else:
+    # Siamo in locale: escludi Managed Identity (non disponibile in locale)
     credential = DefaultAzureCredential(
         exclude_managed_identity_credential=True,
         exclude_visual_studio_code_credential=True,
         exclude_shared_token_cache_credential=True,
         exclude_interactive_browser_credential=False
     )
-    token = credential.get_token(f"{AZURE_OPENAI_ENDPOINT}/.default")
+
+# === Ottieni token da Azure AD ===
+try:
+    token = credential.get_token("https://cognitiveservices.azure.com/.default")
     st.write("✅ Token ottenuto")
 
     decoded = jwt.decode(token.token, options={"verify_signature": False})
