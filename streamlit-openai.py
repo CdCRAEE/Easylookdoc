@@ -37,7 +37,7 @@ def get_credential():
 # === Ottieni token da Azure AD ===
 try:
     credential = get_credential()
-    token = credential.get_token("https://cognitiveservices.azure.com/.default")
+    token = credential.get_token("https://openai.azure.com/.default")
     st.write("✅ Token ottenuto")
 
     decoded = jwt.decode(token.token, options={"verify_signature": False})
