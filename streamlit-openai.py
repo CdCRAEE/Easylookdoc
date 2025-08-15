@@ -32,11 +32,8 @@ with st.expander("🔧 Debug Variabili Ambiente"):
 
 # === Setup credenziali con debug ===
 try:
-    # Costruiamo una catena credenziali per testare più modalità:
-    # 1. Managed Identity (App Service)
-    # 2. DefaultAzureCredential (inclusi EnvironmentCredential)
     credential = ChainedTokenCredential(
-        ManagedIdentityCredential(),  # Per app in Azure con Managed Identity abilitata
+        ManagedIdentityCredential(),
         DefaultAzureCredential(
             exclude_managed_identity_credential=True,
             exclude_visual_studio_code_credential=True,
@@ -45,16 +42,13 @@ try:
         )
     )
 
-    # Prendiamo il token per Azure OpenAI: IMPORTANTE usare https://openai.azure.com/.default
     token = credential.get_token("https://openai.azure.com/.default")
     st.success("✅ Token ottenuto con successo!")
 
-    # Decodifica JWT senza verifica (per debug)
     decoded = jwt.decode(token.token, options={"verify_signature": False})
     with st.expander("🔍 Dettagli Token Azure AD (decodificato)"):
         st.json(decoded)
 
-    # Mostriamo i claim principali
     st.write(f"Issuer (iss): {decoded.get('iss')}")
     st.write(f"Tenant ID (tid): {decoded.get('tid')}")
     st.write(f"Audience (aud): {decoded.get('aud')}")
@@ -62,17 +56,18 @@ try:
     st.write(f"Token valido fino a: {decoded.get('exp')} (epoch)")
 
 except ClientAuthenticationError as auth_err:
-    st.error(f"❌ Errore autenticazione Azure AD (ClientAuthenticationError):\n{auth_err}")
+    st.error(f"❌ Errore autenticazione Azure AD:\n{auth_err}")
     st.stop()
 except Exception as e:
     st.error(f"❌ Errore generale:\n{e}")
     st.stop()
 
-# === Configura OpenAI ===
-openai.api_type = "azure_ad"
-openai.api_base = AZURE_OPENAI_ENDPOINT
-openai.api_version = API_VERSION
-openai.api_key = token.token
+# === Configura client OpenAI ===
+client = openai.AzureOpenAI(
+    api_version=API_VERSION,
+    azure_endpoint=AZURE_OPENAI_ENDPOINT,
+    azure_ad_token=token.token
+)
 
 # === UI di chat ===
 prompt = st.text_area("✏️ Scrivi la tua domanda:")
@@ -83,21 +78,15 @@ if st.button("📤 Invia"):
     else:
         try:
             response = client.chat.completions.create(
-            	model=DEPLOYMENT_NAME,
-            	messages=[
-            	    {"role": "system", "content": "Sei un assistente utile."},
-            	    {"role": "user", "content": domanda}
-        	],
-        	temperature=0.7,
-        	max_tokens=500
-    	)
-    	st.write(response.choices[0].message.content)
+                model=DEPLOYMENT_NAME,
+                messages=[
+                    {"role": "system", "content": "Sei un assistente utile."},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.7,
+                max_tokens=500
+            )
+            st.success(response.choices[0].message["content"])
 
-except Exception as api_err:
-    st.error(f"❌ Errore nella risposta AI:\n{api_err}")
-
-            st.success(response.choices[0].message.content)
-        except openai.error.OpenAIError as api_err:
-            st.error(f"❌ Errore nella risposta AI:\n{api_err}")
         except Exception as e:
-            st.error(f"❌ Errore generico nella chiamata API:\n{e}")
+            st.error(f"❌ Errore nella chiamata API:\n{e}")
