@@ -42,7 +42,7 @@ try:
         )
     )
 
-    token = credential.get_token("https://openai.azure.com/.default")
+    token = credential.get_token("https://cognitiveservices.azure.com/.default")
     st.success("✅ Token ottenuto con successo!")
 
     decoded = jwt.decode(token.token, options={"verify_signature": False})
