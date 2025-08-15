@@ -82,15 +82,20 @@ if st.button("📤 Invia"):
         st.warning("⚠️ Inserisci una domanda.")
     else:
         try:
-            response = openai.chat.completions.create(
-                model=DEPLOYMENT_NAME,
-                messages=[
-                    {"role": "system", "content": "Sei un assistente utile."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.7,
-                max_tokens=500,
-            )
+            response = client.chat.completions.create(
+            	model=DEPLOYMENT_NAME,
+            	messages=[
+            	    {"role": "system", "content": "Sei un assistente utile."},
+            	    {"role": "user", "content": domanda}
+        	],
+        	temperature=0.7,
+        	max_tokens=500
+    	)
+    	st.write(response.choices[0].message.content)
+
+except Exception as api_err:
+    st.error(f"❌ Errore nella risposta AI:\n{api_err}")
+
             st.success(response.choices[0].message.content)
         except openai.error.OpenAIError as api_err:
             st.error(f"❌ Errore nella risposta AI:\n{api_err}")
