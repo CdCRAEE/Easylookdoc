@@ -24,13 +24,13 @@ API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-05-01-preview")
 # -----------------------
 # DEBUG VARIABILI
 # -----------------------
-st.subheader("🔧 Debug Variabili Ambiente")
-st.write(f"Tenant ID: {TENANT_ID}")
-st.write(f"Client ID: {CLIENT_ID}")
-st.write(f"Client Secret: {'✅' if CLIENT_SECRET else '❌'}")
-st.write(f"Endpoint API: {AZURE_OPENAI_ENDPOINT}")
-st.write(f"Deployment: {DEPLOYMENT_NAME}")
-st.write(f"API Version: {API_VERSION}")
+# st.subheader("🔧 Debug Variabili Ambiente")
+# st.write(f"Tenant ID: {TENANT_ID}")
+# st.write(f"Client ID: {CLIENT_ID}")
+# st.write(f"Client Secret: {'✅' if CLIENT_SECRET else '❌'}")
+# st.write(f"Endpoint API: {AZURE_OPENAI_ENDPOINT}")
+# st.write(f"Deployment: {DEPLOYMENT_NAME}")
+# st.write(f"API Version: {API_VERSION}")
 
 # -----------------------
 # OTTIENI TOKEN CON SCOPE CORRETTO
@@ -41,19 +41,19 @@ try:
     token = credential.get_token("https://cognitiveservices.azure.com/.default")
     st.success("✅ Token ottenuto con successo!")
 
-    # Decodifica per debug
-    decoded = jwt.decode(token.token, options={"verify_signature": False})
-    st.write("🔍 Dettagli Token Azure AD (decodificato)")
-    st.json(decoded)
+    # Decodifica per debug (disattivata)
+    # decoded = jwt.decode(token.token, options={"verify_signature": False})
+    # st.write("🔍 Dettagli Token Azure AD (decodificato)")
+    # st.json(decoded)
 
-    st.write(f"Issuer (iss): {decoded.get('iss')}")
-    st.write(f"Tenant ID (tid): {decoded.get('tid')}")
-    st.write(f"Audience (aud): {decoded.get('aud')}")
-    st.write(f"Expiration (exp): {decoded.get('exp')}")
-    st.write(
-        f"Token valido fino a: "
-        f"{datetime.fromtimestamp(decoded.get('exp', 0), tz=timezone.utc)}"
-    )
+    # st.write(f"Issuer (iss): {decoded.get('iss')}")
+    # st.write(f"Tenant ID (tid): {decoded.get('tid')}")
+    # st.write(f"Audience (aud): {decoded.get('aud')}")
+    # st.write(f"Expiration (exp): {decoded.get('exp')}")
+    # st.write(
+    #    f"Token valido fino a: "
+    #    f"{datetime.fromtimestamp(decoded.get('exp', 0), tz=timezone.utc)}"
+    # )
 
 except Exception as e:
     st.error(f"Errore ottenimento token: {e}")
