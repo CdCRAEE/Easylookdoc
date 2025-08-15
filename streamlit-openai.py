@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 # LOGO
 # -----------------------
 st.set_page_config(page_title="EasyLook.DOC Chat", page_icon="📝")
-st.image("Images/Logo EasyLookDOC.png", width=250)  # Percorso relativo alla cartella Images
+st.image("images/Logo EasyLookDOC.png", width=250)  # Percorso relativo alla cartella Images
 
 # -----------------------
 # CONFIGURAZIONE
