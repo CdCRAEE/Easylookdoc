@@ -39,7 +39,7 @@ try:
     credential = ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
     # ✅ Scope corretto per Azure OpenAI
     token = credential.get_token("https://cognitiveservices.azure.com/.default")
-    st.success("✅ Token ottenuto con successo!")
+    # st.success("✅ Token ottenuto con successo!")
 
     # Decodifica per debug (disattivata)
     # decoded = jwt.decode(token.token, options={"verify_signature": False})
@@ -75,7 +75,7 @@ except Exception as e:
 # -----------------------
 # HANDSHAKE DI TEST
 # -----------------------
-st.subheader("🔗 Test Handshake API")
+# st.subheader("🔗 Test Handshake API")
 try:
     handshake_resp = client.chat.completions.create(
         model=DEPLOYMENT_NAME,
@@ -86,8 +86,8 @@ try:
         max_tokens=5,
         temperature=0
     )
-    st.success("✅ Handshake riuscito!")
-    st.write("Risposta handshake:", handshake_resp.choices[0].message.content)
+    # st.success("✅ Handshake riuscito!")
+    # st.write("Risposta handshake:", handshake_resp.choices[0].message.content)
 except Exception as handshake_err:
     st.error("❌ Handshake fallito")
     st.error(handshake_err)
