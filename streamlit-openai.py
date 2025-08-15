@@ -6,6 +6,13 @@ import jwt
 from datetime import datetime, timezone
 
 # -----------------------
+# LOGO
+# -----------------------
+st.set_page_config(page_title="EasyLookDOC Chat", page_icon="📝")
+st.image("logo.png", width=250)  # Assicurati che 'logo.png' sia nella stessa cartella dello script
+
+
+# -----------------------
 # CONFIGURAZIONE
 # -----------------------
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
@@ -90,7 +97,7 @@ except Exception as handshake_err:
 # -----------------------
 # INTERFACCIA CHAT
 # -----------------------
-st.subheader("💬 Chat con Azure OpenAI")
+st.subheader("💬 Chat con CdC RAEE")
 prompt = st.text_input("✏️ Scrivi la tua domanda:")
 
 if prompt:
