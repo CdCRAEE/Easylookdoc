@@ -11,7 +11,7 @@ from azure.identity import ClientSecretCredential
 
 # Document Intelligence
 try:
-    from azure.ai.formrecognizer import DocumentAnalysisClient
+    from azure.ai.formrecognizer import DocumentAnalysisClient                                                                                                        
     from azure.core.credentials import AzureKeyCredential
     HAVE_FORMRECOGNIZER = True
 except Exception:
@@ -31,16 +31,16 @@ st.title("EasyLook.DOC")
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
 CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET")
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")      # es: https://easylookdoc-openai.openai.azure.com
-DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT")           # es: gpt-4o
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")      
+DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT")         
 API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-05-01-preview")
 
 # Document Intelligence
-AZURE_DOCINT_ENDPOINT = os.getenv("AZURE_DOCINT_ENDPOINT")       # es: https://document-ai-analyzer.cognitiveservices.azure.com
-AZURE_DOCINT_KEY = os.getenv("AZURE_DOCINT_KEY")                 # se vuoto, abiliteremo AAD in step successivo
+AZURE_DOCINT_ENDPOINT = os.getenv("AZURE_DOCINT_ENDPOINT")     
+AZURE_DOCINT_KEY = os.getenv("AZURE_DOCINT_KEY")               
 
 # Blob container SAS (modo semplice)
-AZURE_BLOB_CONTAINER_SAS_URL = os.getenv("AZURE_BLOB_CONTAINER_SAS_URL")  # es: https://account.blob.core.windows.net/container?sv=...&sig=...
+AZURE_BLOB_CONTAINER_SAS_URL = os.getenv("AZURE_BLOB_CONTAINER_SAS_URL")  
 
 # -----------------------
 # TOKEN AAD PER OPENAI
@@ -59,14 +59,14 @@ try:
     client = AzureOpenAI(
         api_version=API_VERSION,
         azure_endpoint=AZURE_OPENAI_ENDPOINT,
-        api_key=token.token  # Bearer token AAD
+        api_key=token.token  
     )
 except Exception as e:
     st.error(f"Errore inizializzazione AzureOpenAI: {e}")
     st.stop()
 
 # -----------------------
-# (Facoltativo) HANDSHAKE veloce
+# HANDSHAKE veloce
 # -----------------------
 with st.expander("🔗 Test Handshake API (facoltativo)"):
     try:
@@ -108,8 +108,6 @@ else:
     def build_blob_sas_url(container_sas_url: str, blob_name: str) -> str:
         """
         Costruisce l'URL del singolo blob unendo base + file + query SAS.
-        container_sas_url: https://account.blob.core.windows.net/container?sv=...&sig=...
-        blob_name: es. 'contratto1.pdf'
         """
         if "?" not in container_sas_url:
             return ""
@@ -122,8 +120,15 @@ else:
             st.error("Completa le variabili e inserisci il nome file.")
         else:
             try:
+                # Normalizzo nome file (rimuovo spazi iniziali/finali)
+                clean_file_name = file_name.strip()
+
                 # Costruisci URL del blob con SAS
-                blob_url = build_blob_sas_url(AZURE_BLOB_CONTAINER_SAS_URL, file_name)
+                blob_url = build_blob_sas_url(AZURE_BLOB_CONTAINER_SAS_URL, clean_file_name)
+                
+                # LOG: Mostro l’URL costruito
+                st.write("📎 URL blob costruito:", blob_url)
+
                 if not blob_url:
                     st.error("SAS container URL non valido.")
                 else:
@@ -145,7 +150,7 @@ else:
                     )
                     result = poller.result()
 
-                    # Concateno tutto il testo pagina per pagina
+                    # Concateno testo
                     pages_text = []
                     for page in result.pages:
                         if hasattr(page, "content") and page.content:
@@ -153,7 +158,6 @@ else:
                     full_text = "\n\n".join(pages_text).strip()
 
                     if not full_text:
-                        # fallback: alcune versioni espongono lines piuttosto che content
                         all_lines = []
                         for page in result.pages:
                             for line in getattr(page, "lines", []) or []:
@@ -164,13 +168,13 @@ else:
                         st.success("✅ Testo estratto correttamente!")
                         st.text_area("Anteprima testo (prime ~4000 caratteri):", full_text[:4000], height=300)
                     else:
-                        st.warning("Nessun testo estratto. Verifica il file (scansione/qualità) o i permessi SAS.")
+                        st.warning("Nessun testo estratto. Verifica il file o i permessi SAS.")
 
             except Exception as e:
                 st.error(f"Errore durante l'analisi del documento: {e}")
 
 # -----------------------
-# CHAT (come già avevi)
+# CHAT
 # -----------------------
 st.subheader("💬 Chat con CdC RAEE")
 prompt = st.text_input("✏️ Scrivi la tua domanda:")
