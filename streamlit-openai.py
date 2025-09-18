@@ -1,100 +1,157 @@
-import streamlit as st
 import os
-import openai
-import jwt
-from azure.identity import DefaultAzureCredential, ManagedIdentityCredential, ChainedTokenCredential
-from azure.core.exceptions import ClientAuthenticationError
+import streamlit as st
+from datetime import datetime, timezone
 
-# === Variabili ambiente ===
+# OpenAI (Azure)
+from openai import AzureOpenAI
+import jwt
+
+# Credenziali AAD per OpenAI
+from azure.identity import ClientSecretCredential
+
+# Document Intelligence
+try:
+    from azure.ai.formrecognizer import DocumentAnalysisClient
+    from azure.core.credentials import AzureKeyCredential
+    HAVE_FORMRECOGNIZER = True
+except Exception:
+    HAVE_FORMRECOGNIZER = False
+
+# -----------------------
+# LOGO E TITOLI
+# -----------------------
+st.set_page_config(page_title="EasyLook.DOC Chat", page_icon="📝")
+st.image("images/Logo EasyLookDOC.png", width=250)
+st.title("EasyLook.DOC")
+
+# -----------------------
+# CONFIGURAZIONE
+# -----------------------
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
 CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET")
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o")
-API_VERSION = "2024-05-01-preview"
+DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-05-01-preview")
 
-# === Streamlit UI ===
-st.set_page_config(page_title="EasyLookDOC Debug Chat AI", layout="centered")
+AZURE_DOCINT_ENDPOINT = os.getenv("AZURE_DOCINT_ENDPOINT")
+AZURE_DOCINT_KEY = os.getenv("AZURE_DOCINT_KEY")
 
-if os.path.exists("images/Logo EasyLookDOC.png"):
-    st.image("images/Logo EasyLookDOC.png", width=250)
+AZURE_BLOB_CONTAINER_SAS_URL = os.getenv("AZURE_BLOB_CONTAINER_SAS_URL")
 
-st.title("💬 EasyLook.DOC Chat AI - Debug Mode (Auto rilevamento)")
-
-# === Mostra le variabili ambiente ===
-with st.expander("🔧 Debug Variabili Ambiente"):
-    st.write("Tenant ID:", TENANT_ID or "❌ MANCANTE")
-    st.write("Client ID:", CLIENT_ID or "❌ MANCANTE")
-    st.write("Client Secret:", "✅" if CLIENT_SECRET else "❌ MANCANTE")
-    st.write("Endpoint API:", AZURE_OPENAI_ENDPOINT or "❌ MANCANTE")
-    st.write("Deployment:", DEPLOYMENT_NAME)
-    st.write("API Version:", API_VERSION)
-
-# === Funzione per rilevare ambiente ===
-def running_in_azure():
-    """Rileva se siamo su Azure App Service."""
-    return bool(os.getenv("WEBSITE_INSTANCE_ID"))
-
-# === Setup credenziali con debug ===
+# -----------------------
+# TOKEN AAD PER OPENAI
+# -----------------------
 try:
-    if running_in_azure():
-        st.info("🌐 Rilevato ambiente: Azure App Service → uso Managed Identity")
-        credential = ManagedIdentityCredential()
-    else:
-        st.info("💻 Rilevato ambiente: Locale → uso DefaultAzureCredential")
-        credential = DefaultAzureCredential(
-            exclude_managed_identity_credential=False,
-            exclude_visual_studio_code_credential=False,
-            exclude_shared_token_cache_credential=False,
-            exclude_interactive_browser_credential=False
-        )
-
-    # Ottenere token per Azure OpenAI
-    token = credential.get_token("https://openai.azure.com/.default")
-    st.success("✅ Token ottenuto con successo!")
-
-    # Decodifica JWT senza verifica
-    decoded = jwt.decode(token.token, options={"verify_signature": False})
-    with st.expander("🔍 Dettagli Token Azure AD (decodificato)"):
-        st.json(decoded)
-
-    st.write(f"Issuer (iss): {decoded.get('iss')}")
-    st.write(f"Tenant ID (tid): {decoded.get('tid')}")
-    st.write(f"Audience (aud): {decoded.get('aud')}")
-    st.write(f"Scadenza (exp): {decoded.get('exp')} (epoch)")
-
-except ClientAuthenticationError as auth_err:
-    st.error(f"❌ Errore autenticazione Azure AD:\n{auth_err}")
-    st.stop()
+    credential = ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
+    token = credential.get_token("https://cognitiveservices.azure.com/.default")
 except Exception as e:
-    st.error(f"❌ Errore generale:\n{e}")
+    st.error(f"Errore ottenimento token AAD per OpenAI: {e}")
     st.stop()
 
-# === Configura client OpenAI ===
-client = openai.AzureOpenAI(
-    api_version=API_VERSION,
-    azure_endpoint=AZURE_OPENAI_ENDPOINT,
-    azure_ad_token=token.token
-)
+# -----------------------
+# CLIENT AZURE OPENAI
+# -----------------------
+try:
+    client = AzureOpenAI(
+        api_version=API_VERSION,
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        api_key=token.token  # Bearer token AAD
+    )
+except Exception as e:
+    st.error(f"Errore inizializzazione AzureOpenAI: {e}")
+    st.stop()
 
-# === UI di chat ===
-prompt = st.text_area("✏️ Scrivi la tua domanda:")
+# -----------------------
+# 📄 STEP 1: Estrarre testo da Blob via Document Intelligence
+# -----------------------
+st.subheader("📄 Step 1 · Estrai testo da Blob")
 
-if st.button("📤 Invia"):
-    if not prompt.strip():
-        st.warning("⚠️ Inserisci una domanda.")
-    else:
+if not HAVE_FORMRECOGNIZER:
+    st.warning("Installa azure-ai-formrecognizer>=3.3.0")
+else:
+    file_name = st.text_input("Nome file nel container (es. 'contratto1.pdf')")
+
+    def build_blob_sas_url(container_sas_url: str, blob_name: str) -> str:
+        if "?" not in container_sas_url:
+            return ""
+        base, qs = container_sas_url.split("?", 1)
+        base = base.rstrip("/")
+        return f"{base}/{blob_name}?{qs}"
+
+    if st.button("🔎 Estrai testo"):
+        if not (AZURE_DOCINT_ENDPOINT and (AZURE_DOCINT_KEY or (TENANT_ID and CLIENT_ID and CLIENT_SECRET)) and AZURE_BLOB_CONTAINER_SAS_URL and file_name):
+            st.error("Completa le variabili e inserisci il nome file.")
+        else:
+            try:
+                blob_url = build_blob_sas_url(AZURE_BLOB_CONTAINER_SAS_URL, file_name)
+
+                # Client Document Intelligence
+                if AZURE_DOCINT_KEY:
+                    di_client = DocumentAnalysisClient(
+                        endpoint=AZURE_DOCINT_ENDPOINT,
+                        credential=AzureKeyCredential(AZURE_DOCINT_KEY)
+                    )
+                else:
+                    di_client = DocumentAnalysisClient(
+                        endpoint=AZURE_DOCINT_ENDPOINT,
+                        credential=ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
+                    )
+
+                poller = di_client.begin_analyze_document_from_url(
+                    model_id="prebuilt-read",
+                    document_url=blob_url
+                )
+                result = poller.result()
+
+                pages_text = []
+                for page in result.pages:
+                    if hasattr(page, "content") and page.content:
+                        pages_text.append(page.content)
+                full_text = "\n\n".join(pages_text).strip()
+
+                if not full_text:
+                    all_lines = []
+                    for page in result.pages:
+                        for line in getattr(page, "lines", []) or []:
+                            all_lines.append(line.content)
+                    full_text = "\n".join(all_lines).strip()
+
+                if full_text:
+                    st.success("✅ Testo estratto correttamente!")
+                    st.text_area("Anteprima testo (~4000 caratteri):", full_text[:4000], height=300)
+                    st.session_state["document_text"] = full_text
+                else:
+                    st.warning("Nessun testo estratto. Verifica file o SAS.")
+
+            except Exception as e:
+                st.error(f"Errore durante l'analisi del documento: {e}")
+
+# -----------------------
+# 💬 STEP 2: Chat solo sul documento estratto
+# -----------------------
+st.subheader("💬 Step 2 · Chat sul documento")
+
+if "document_text" not in st.session_state:
+    st.info("Prima estrai un documento dal Blob (Step 1).")
+else:
+    user_prompt = st.text_input("✏️ Scrivi la tua domanda sul documento:")
+
+    if user_prompt:
         try:
+            doc_text = st.session_state["document_text"]
+
             response = client.chat.completions.create(
                 model=DEPLOYMENT_NAME,
                 messages=[
-                    {"role": "system", "content": "Sei un assistente utile."},
-                    {"role": "user", "content": prompt}
+                    {"role": "system", "content": "Sei un assistente che risponde SOLO sulla base del documento fornito."},
+                    {"role": "system", "content": f"Contenuto documento:\n{doc_text[:12000]}"},
+                    {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.7,
-                max_tokens=500
+                temperature=0.3,
+                max_tokens=600
             )
-            st.success(response.choices[0].message["content"])
-
-        except Exception as e:
-            st.error(f"❌ Errore nella chiamata API:\n{e}")
+            st.write("💬 **Risposta AI:**")
+            st.write(response.choices[0].message.content)
+        except Exception as api_err:
+            st.error(f"❌ Errore nella chiamata API: {api_err}")
