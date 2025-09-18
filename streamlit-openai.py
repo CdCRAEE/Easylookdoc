@@ -21,7 +21,7 @@ except Exception:
 # LOGO E TITOLI
 # -----------------------
 st.set_page_config(page_title="EasyLook.DOC Chat", page_icon="📝")
-st.image("images/Logo EasyLookDOC.png", width=250)
+st.image("images/Nuovo_Logo.png", width=250)
 st.title("EasyLook.DOC")
 
 # -----------------------
