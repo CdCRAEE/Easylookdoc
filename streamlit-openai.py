@@ -24,8 +24,8 @@ st.set_page_config(page_title="EasyLook.DOC Chat", page_icon="📝")
 
 st.markdown(
     """
-    <div style="text-align:center;">
-        <img src="images/Nuovo_Logo.png" style="display:block;margin:0 auto;" width="250"/>
+    <div style="text-align: center;">
+        <img src="images/Nuovo_Logo.png" width="250"/>
     </div>
     """,
     unsafe_allow_html=True
