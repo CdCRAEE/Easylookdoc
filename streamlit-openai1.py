@@ -21,9 +21,18 @@ except Exception:
 # LOGO E TITOLI
 # -----------------------
 st.set_page_config(page_title="EasyLook.DOC Chat", page_icon="📝")
+
 col1, col2, col3 = st.columns([1,2,1])
 with col2:
-    st.image("images/Nuovo_Logo.png", width=250)
+    st.markdown(
+        """
+        <div style="display:flex;justify-content:center;align-items:center;">
+            <img src="images/Nuovo_Logo.png" width="250" style="max-width:100%;height:auto;">
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+
 st.title("EasyLook.DOC")
 
 # -----------------------
