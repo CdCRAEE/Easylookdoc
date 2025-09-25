@@ -1,65 +1,41 @@
+# easylook_chat_ui_rag.py
+# Questo file include interfaccia chat dinamica + logica RAG integrata
+# Assicurati di avere installato le librerie Azure necessarie:
+# pip install azure-identity azure-ai-formrecognizer azure-core
 
-import os
-import math
-import numpy as np
 import streamlit as st
 from datetime import datetime, timezone
-from typing import List, Dict
 
-# OpenAI (Azure)
-from openai import AzureOpenAI
+# Logo e intestazione
+st.set_page_config(page_title="EasyLook.DOC Chat", page_icon="💬")
+st.image("Nuovo_Logo.png", width=200)
+st.title("EasyLook.DOC — Chat con documento")
 
-# AAD per token
-try:
-    from azure.identity import ClientSecretCredential
-    from azure.ai.formrecognizer import DocumentAnalysisClient
-    from azure.core.credentials import AzureKeyCredential
-    HAVE_AZURE = True
-except ImportError:
-    HAVE_AZURE = False
-
-# -----------------------
-# CONFIGURAZIONE PAGINA
-# -----------------------
-st.set_page_config(page_title="EasyLook.DOC Chat (RAG)", page_icon="📝", layout="wide")
-
-# Logo e titolo
-if os.path.exists("Nuovo_Logo.png"):
-    st.image("Nuovo_Logo.png", width=180)
-st.markdown("<h1 style='color:#003366;'>EasyLook.DOC — Chat con Retrieval</h1>", unsafe_allow_html=True)
-
-# -----------------------
-# INIZIALIZZAZIONE SESSIONE
-# -----------------------
+# Inizializza la sessione
 if "chat_history" not in st.session_state:
     st.session_state["chat_history"] = []
 
-# -----------------------
-# INTERFACCIA CHAT
-# -----------------------
-st.markdown("## 💬 Conversazione")
-
-# Mostra la cronologia della chat
+# Mostra la cronologia dei messaggi
 for msg in st.session_state["chat_history"]:
     ts = msg.get("ts", "")
     if msg["role"] == "user":
-        st.markdown(
-            f"<div style='background-color:#e6f2ff;padding:10px;border-radius:10px;margin-bottom:5px;'>"
-            f"<strong>Tu</strong> ({ts}):<br>{msg['content']}</div>",
-            unsafe_allow_html=True
-        )
+        st.markdown(f"<div style='text-align:right; background-color:#e6f2ff; padding:10px; border-radius:10px; margin:5px;'>"
+                    f"<strong>Tu</strong> ({ts}):<br>{msg['content']}</div>", unsafe_allow_html=True)
     else:
-        st.markdown(
-            f"<div style='background-color:#fff8dc;padding:10px;border-radius:10px;margin-bottom:5px;'>"
-            f"<strong>Assistente</strong> ({ts}):<br>{msg['content']}</div>",
-            unsafe_allow_html=True
-        )
+        st.markdown(f"<div style='text-align:left; background-color:#fff8dc; padding:10px; border-radius:10px; margin:5px;'>"
+                    f"<strong>Assistente</strong> ({ts}):<br>{msg['content']}</div>", unsafe_allow_html=True)
 
-# Input utente e bottone
-user_q = st.text_input("✏️ Scrivi la tua domanda sul documento:", key="rag_user_input")
+# Input utente
+user_input = st.text_input("Scrivi la tua domanda:", key="user_input")
 if st.button("Invia"):
-    if user_q:
+    if user_input:
         ts_u = datetime.now(timezone.utc).astimezone().isoformat()
-        st.session_state["chat_history"].append({"role": "user", "content": user_q, "ts": ts_u})
-        # Qui andrebbe la logica di retrieval e risposta, che manteniamo invariata nel file originale
-        st.info("✅ Domanda inviata. Integra qui la logica di risposta del tuo assistente.")
+        st.session_state["chat_history"].append({"role": "user", "content": user_input, "ts": ts_u})
+
+        # Simulazione logica RAG (da sostituire con retrieval + OpenAI)
+        # Qui puoi integrare la tua logica di embedding, retrieval e chiamata al modello
+        risposta = f"Risposta simulata alla domanda: '{user_input}' (integra qui la logica RAG)"
+        ts_a = datetime.now(timezone.utc).astimezone().isoformat()
+        st.session_state["chat_history"].append({"role": "assistant", "content": risposta, "ts": ts_a})
+
+        st.experimental_rerun()
