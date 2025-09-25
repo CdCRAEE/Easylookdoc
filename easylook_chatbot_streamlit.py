@@ -1,41 +1,97 @@
-# easylook_chat_ui_rag.py
-# Questo file include interfaccia chat dinamica + logica RAG integrata
-# Assicurati di avere installato le librerie Azure necessarie:
-# pip install azure-identity azure-ai-formrecognizer azure-core
-
+import os
 import streamlit as st
 from datetime import datetime, timezone
 
-# Logo e intestazione
-st.set_page_config(page_title="EasyLook.DOC Chat", page_icon="💬")
-st.image("Nuovo_Logo.png", width=200)
-st.title("EasyLook.DOC — Chat con documento")
+# OpenAI (Azure)
+from openai import AzureOpenAI
+import jwt
 
-# Inizializza la sessione
-if "chat_history" not in st.session_state:
-    st.session_state["chat_history"] = []
+# Credenziali AAD per OpenAI
+from azure.identity import ClientSecretCredential
 
-# Mostra la cronologia dei messaggi
-for msg in st.session_state["chat_history"]:
-    ts = msg.get("ts", "")
-    if msg["role"] == "user":
-        st.markdown(f"<div style='text-align:right; background-color:#e6f2ff; padding:10px; border-radius:10px; margin:5px;'>"
-                    f"<strong>Tu</strong> ({ts}):<br>{msg['content']}</div>", unsafe_allow_html=True)
-    else:
-        st.markdown(f"<div style='text-align:left; background-color:#fff8dc; padding:10px; border-radius:10px; margin:5px;'>"
-                    f"<strong>Assistente</strong> ({ts}):<br>{msg['content']}</div>", unsafe_allow_html=True)
+# Document Intelligence
+try:
+    from azure.ai.formrecognizer import DocumentAnalysisClient
+    from azure.core.credentials import AzureKeyCredential
+    HAVE_FORMRECOGNIZER = True
+except Exception:
+    HAVE_FORMRECOGNIZER = False
 
-# Input utente
-user_input = st.text_input("Scrivi la tua domanda:", key="user_input")
-if st.button("Invia"):
-    if user_input:
-        ts_u = datetime.now(timezone.utc).astimezone().isoformat()
-        st.session_state["chat_history"].append({"role": "user", "content": user_input, "ts": ts_u})
+# -----------------------
+# LOGO E TITOLI
+# -----------------------
+st.set_page_config(page_title="EasyLook.DOC Chat", page_icon="📝")
+st.image("images/Nuovo_Logo.png", width=250)
+st.title("EasyLook.DOC")
 
-        # Simulazione logica RAG (da sostituire con retrieval + OpenAI)
-        # Qui puoi integrare la tua logica di embedding, retrieval e chiamata al modello
-        risposta = f"Risposta simulata alla domanda: '{user_input}' (integra qui la logica RAG)"
-        ts_a = datetime.now(timezone.utc).astimezone().isoformat()
-        st.session_state["chat_history"].append({"role": "assistant", "content": risposta, "ts": ts_a})
+# -----------------------
+# CONFIGURAZIONE
+# -----------------------
+TENANT_ID = os.getenv("AZURE_TENANT_ID")
+CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
+CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET")
+AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
+DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT")
+API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-05-01-preview")
 
-        st.experimental_rerun()
+AZURE_DOCINT_ENDPOINT = os.getenv("AZURE_DOCINT_ENDPOINT")
+AZURE_DOCINT_KEY = os.getenv("AZURE_DOCINT_KEY")
+
+AZURE_BLOB_CONTAINER_SAS_URL = os.getenv("AZURE_BLOB_CONTAINER_SAS_URL")
+
+# -----------------------
+# TOKEN AAD PER OPENAI
+# -----------------------
+try:
+    credential = ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
+    token = credential.get_token("https://cognitiveservices.azure.com/.default")
+except Exception as e:
+    st.error(f"Errore ottenimento token AAD per OpenAI: {e}")
+    st.stop()
+
+# -----------------------
+# CLIENT AZURE OPENAI
+# -----------------------
+try:
+    client = AzureOpenAI(
+        api_version=API_VERSION,
+        azure_endpoint=AZURE_OPENAI_ENDPOINT,
+        api_key=token.token  # Bearer token AAD
+    )
+except Exception as e:
+    st.error(f"Errore inizializzazione AzureOpenAI: {e}")
+    st.stop()
+
+# -----------------------
+# CSS + helper per chat stile WhatsApp
+# -----------------------
+CHAT_CSS = """
+<style>
+/* container */
+.chat-window {
+  max-width: 900px;
+  margin: 0 auto 12px auto;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.06);
+  height: 60vh;
+  overflow-y: auto;
+}
+/* rows */
+.row { display: flex; flex-direction: column; margin-bottom: 8px; }
+/* user (right) */
+.row.right { align-items: flex-end; }
+/* assistant (left) */
+.row.left { align-items: flex-start; }
+/* bubble */
+.msg { padding: 10px 14px; border-radius: 18px; display: inline-block; max-width: 78%; word-wrap: break-word; line-height: 1.3; }
+/* user style */
+.msg.user { background: #DCF8C6; color: #000; border-bottom-right-radius: 4px; }
+/* assistant style */
+.msg.assistant { background: #ffffff; color: #000; border: 1px solid #e6e6e6; border-bottom-left-radius: 4px; }
+/* meta timestamp */
+.meta { font-size: 11px; color: #666; margin-top: 4px; }
+/* input row */
+.input-row { display:flex; gap:8px; margin-top:12px; max-width:900px; margin-left:auto; margin-right:auto; }
+input[type="te]()
