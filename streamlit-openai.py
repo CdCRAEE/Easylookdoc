@@ -1,4 +1,4 @@
-# streamlit-openai.py (patched v9.3: stronger full-width + smarter autoscroll)
+# streamlit-openai.py (patched v9.4: guaranteed full-width + smart autoscroll)
 import os
 import re
 import html
@@ -54,16 +54,13 @@ def local_iso_now() -> str:
 # -----------------------
 st.set_page_config(page_title="EasyLook.DOC Chat", page_icon="📝", layout="wide")
 
-# Strong full-width overrides (container + element + iframe)
+# Full-width container + iframe override
 st.markdown("""
 <style>
 .block-container {max-width: 100% !important; padding-left: 1rem; padding-right: 1rem;}
 main .block-container, [data-testid="block-container"] {max-width: 100% !important;}
-/* all Streamlit elements should span full row width by default */
 .stElement, .stElement > div { width: 100% !important; }
-/* ensure the HTML component itself fills the row */
 .stElement iframe, iframe[title="streamlit.components.v1.html"] { width: 100% !important; display:block; }
-/* avoid an extra scrollbar on body */
 html, body { overflow-x: hidden; }
 </style>
 """, unsafe_allow_html=True)
@@ -194,17 +191,17 @@ def get_aoai_client():
 CHAT_CSS = (
     "<style>"
     "html,body,#root{height:100%;margin:0;padding:0;}"
-    ".full-bleed{width:100vw;position:relative;left:50%;right:50%;margin-left:-50vw;margin-right:-50vw;}"
+    ".full-bleed{width:100%;}"
     ".chat-outer{width:100%;height:100%;}"
-    ".chat-wrapper{width:100%;max-width:none;margin:10px 0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;}"
+    "#scroll{height:100%;overflow:auto;overflow-x:hidden;padding-right:6px; width:100%; box-sizing:border-box;}"
+    ".chat-wrapper{width:100%;max-width:100%;margin:10px 0;box-sizing:border-box; font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;}"
+    ".container-box{width:100%;max-width:100%;padding:12px;border-radius:8px;background:#f7f7f8;box-sizing:border-box;}"
     ".message-row{display:flex;margin:6px 8px;}"
     ".bubble{padding:10px 14px;border-radius:18px;max-width:85%;box-shadow:0 1px 0 rgba(0,0,0,0.06);line-height:1.4;white-space:pre-wrap;word-wrap:break-word;}"
     ".user{margin-left:auto;background:linear-gradient(180deg,#DCF8C6,#CFF2B7);text-align:left;border-bottom-right-radius:4px;}"
     ".assistant{margin-right:auto;background:#ffffff;border:1px solid #e6e6e6;text-align:left;border-bottom-left-radius:4px;}"
     ".meta{font-size:11px;color:#888;margin-top:4px;}"
     ".typing{font-style:italic;opacity:.9;}"
-    ".container-box{padding:12px;border-radius:8px;background:#f7f7f8;}"
-    "#scroll{height:100%;overflow:auto;overflow-x:hidden;padding-right:6px;}"
     "</style>"
 )
 
@@ -217,7 +214,7 @@ AUTO_SCROLL_JS = (
     "let stick = nearBottom();"
     "const obs = new MutationObserver(()=>{"
     "  if (!sc) return;"
-    "  if (stick) { sc.scrollTop = sc.scrollHeight; }"
+    "  if (stick && needOverflow()) { sc.scrollTop = sc.scrollHeight; }"
     "  stick = nearBottom();"
     "});"
     "obs.observe(sc || document.body, {childList:true,subtree:true,characterData:true});"
@@ -231,7 +228,7 @@ CHAT_HEIGHT_PX = int(os.getenv("CHAT_HEIGHT_PX", "640"))
 def render_chat_html(history: list, show_typing: bool=False) -> str:
     parts = [
         CHAT_CSS,
-        '<div class="full-bleed"><div class="chat-outer"><div id="scroll"><div class="chat-wrapper container-box">'
+        '<div class="full-bleed"><div class="chat-outer"><div id="scroll"><div class="chat-wrapper"><div class="container-box">'
     ]
     for m in history:
         role = m.get("role", "")
@@ -249,7 +246,7 @@ def render_chat_html(history: list, show_typing: bool=False) -> str:
         parts.append('</div>')
     if show_typing:
         parts.append('<div class="message-row"><div class="bubble assistant typing">Sta scrivendo…</div></div>')
-    parts.append('</div></div></div>')  # end wrapper + scroll + full-bleed
+    parts.append('</div></div></div></div>')  # end container-box + wrapper + scroll + outer
     parts.append(AUTO_SCROLL_JS)
     return "".join(parts)
 
