@@ -1,4 +1,4 @@
-# streamlit-openai.py (patched v9.2: full-width iframe + smart autoscroll)
+# streamlit-openai.py (patched v9.3: stronger full-width + smarter autoscroll)
 import os
 import re
 import html
@@ -54,14 +54,17 @@ def local_iso_now() -> str:
 # -----------------------
 st.set_page_config(page_title="EasyLook.DOC Chat", page_icon="📝", layout="wide")
 
-# Full-width container + iframe override
+# Strong full-width overrides (container + element + iframe)
 st.markdown("""
 <style>
-/* main container a tutta larghezza */
 .block-container {max-width: 100% !important; padding-left: 1rem; padding-right: 1rem;}
 main .block-container, [data-testid="block-container"] {max-width: 100% !important;}
-/* forza i component iframe al 100% della riga */
-.stElement iframe, iframe[title="streamlit.components.v1.html"] { width: 100% !important; }
+/* all Streamlit elements should span full row width by default */
+.stElement, .stElement > div { width: 100% !important; }
+/* ensure the HTML component itself fills the row */
+.stElement iframe, iframe[title="streamlit.components.v1.html"] { width: 100% !important; display:block; }
+/* avoid an extra scrollbar on body */
+html, body { overflow-x: hidden; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -209,14 +212,13 @@ AUTO_SCROLL_JS = (
     "<script>"
     "try{"
     "const sc = document.getElementById('scroll');"
-    "const needOverflow = ()=> sc && (sc.scrollHeight - sc.clientHeight) > 20;"
-    "const atBottom = ()=> sc && (sc.scrollTop >= (sc.scrollHeight - sc.clientHeight - 120));"
-    "// iniziale: scrolla in basso solo se c'è overflow"
-    "if (needOverflow()) { sc.scrollTop = sc.scrollHeight; }"
-    "// osserva cambi e autoscroll SOLO se c'è overflow e l'utente è vicino al fondo"
+    "const needOverflow = ()=> sc && (sc.scrollHeight - sc.clientHeight) > 4;"
+    "const nearBottom = ()=> sc && needOverflow() && (sc.scrollTop >= (sc.scrollHeight - sc.clientHeight - 120));"
+    "let stick = nearBottom();"
     "const obs = new MutationObserver(()=>{"
     "  if (!sc) return;"
-    "  if (needOverflow() && atBottom()) { sc.scrollTop = sc.scrollHeight; }"
+    "  if (stick) { sc.scrollTop = sc.scrollHeight; }"
+    "  stick = nearBottom();"
     "});"
     "obs.observe(sc || document.body, {childList:true,subtree:true,characterData:true});"
     "}catch(e){}"
