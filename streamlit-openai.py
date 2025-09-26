@@ -1,4 +1,4 @@
-# streamlit-openai.py (patched v9: fixed-height chat area)
+# streamlit-openai.py (patched v9.1: fix quotes for truncation banner + fixed-height chat)
 import os
 import re
 import html
@@ -275,6 +275,7 @@ if st.session_state.get("doc_ready", False):
         # Prepara messaggi
         CONTEXT_CHAR_LIMIT = 12000
         ASSISTANT_SYSTEM_INSTRUCTION = "Sei un assistente che risponde SOLO sulla base del documento fornito."
+        TRUNCATION_BANNER = "(---Documento troncato - mostra l'ultima parte---)\n"
 
         def build_messages_for_api(document_text: str, history: list):
             messages = [{"role": "system", "content": ASSISTANT_SYSTEM_INSTRUCTION}]
@@ -282,10 +283,9 @@ if st.session_state.get("doc_ready", False):
             if document_text:
                 doc_content = document_text
                 if len(doc_content) > CONTEXT_CHAR_LIMIT:
-                    doc_content = "(---Documento troncato - mostra l'ultima parte---)
-" + doc_content[-CONTEXT_CHAR_LIMIT:]
-                messages.append({"role": "system", "content": f"Contenuto documento:
-{doc_content}"})
+                    # Usa banner con escape esplicito di newline
+                    doc_content = TRUNCATION_BANNER + doc_content[-CONTEXT_CHAR_LIMIT:]
+                messages.append({"role": "system", "content": f"Contenuto documento:\n{doc_content}"})
             # include history (pulita)
             for m in history:
                 messages.append({"role": m["role"], "content": clean_markdown_fences(m["content"]) })
