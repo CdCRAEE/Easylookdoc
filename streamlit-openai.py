@@ -60,12 +60,12 @@ def get_aoai_client():
     return client, DEPLOYMENT
 
 # ----------------------
-# Styles: two boxes (left white menu, right grey chat)
+# Styles: two boxes (left white menu, right grey chat) + WhatsApp-like bubbles
 # ----------------------
 PRIMARY = os.getenv("BRAND_PRIMARY", "#2a7fa9")
 ACCENT  = os.getenv("BRAND_ACCENT",  "#e6df63")
 SECOND  = os.getenv("BRAND_SECONDARY", "#0aa1c0")
-BG_APP  = "#f5f7fa"
+BG_APP  = "#f0f2f5"  # WhatsApp-ish background
 
 CSS = f"""
 <style>
@@ -90,7 +90,7 @@ html, body, [data-testid=stAppViewContainer] {{ background:{BG_APP}; }}
 
 /* right = grey chat container */
 .chat-panel {{
-  background:#eef2f6;
+  background:#e5ddd5; /* WhatsApp chat bg */
   display:flex; flex-direction:column; gap:12px;
 }}
 
@@ -105,19 +105,43 @@ html, body, [data-testid=stAppViewContainer] {{ background:{BG_APP}; }}
 /* document preview */
 .preview {{ background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:8px; }}
 
-/* chat bubbles */
-.stElement iframe, iframe[title="streamlit.components.v1.html"] {{ width:100% !important; display:block; }}
-.chat-wrapper {{ width:100%; }}
-.container-box {{ padding:12px; border-radius:10px; background:#ffffff; border:1px solid #d9e3ef; }}
-.message-row {{ display:flex; margin:8px 0; gap:10px; }}
-.bubble {{ padding:12px 14px; border-radius:14px; max-width:85%; line-height:1.45; border:1px solid #dbe6f3; }}
-.bubble.assistant {{ background:#e7f0ff; }}
-.bubble.user {{ background:#fff6c2; border-color:#efe39a; margin-left:auto; }}
-.badge-assistant {{ display:inline-block; background: var(--brand-primary); color:#fff; border-radius:999px; padding:6px 10px; font-weight:700; }}
-.meta {{ font-size:11px; color:#667; margin-top:4px; }}
-.typing {{ font-style:italic; opacity:.9; }}
+/* chat area */
+.chat-surface {{
+  background-image: linear-gradient(0deg, rgba(0,0,0,0.02) 1px, transparent 1px), linear-gradient(90deg, rgba(0,0,0,0.02) 1px, transparent 1px);
+  background-size: 14px 14px;
+  height: 100%;
+  border-radius: 12px;
+  padding: 12px;
+  overflow: auto;
+}}
 
-#scroll {{ height:100%; min-height:420px; max-height:100%; overflow:auto; overflow-x:hidden; padding-right:6px; }}
+/* WhatsApp-like bubbles */
+.row {{ display:flex; margin:6px 0; }}
+.row.assistant {{ justify-content:flex-start; }}
+.row.user {{ justify-content:flex-end; }}
+
+.bubble {{
+  max-width: 75%;
+  padding: 8px 10px;
+  border-radius: 10px;
+  line-height: 1.45;
+  box-shadow: 0 1px 1px rgba(0,0,0,0.06);
+  position: relative;
+  word-wrap: break-word;
+  border: 1px solid rgba(0,0,0,0.05);
+}}
+
+.bubble.assistant {{
+  background:#ffffff; /* left */
+  border-top-left-radius: 0;
+}}
+
+.bubble.user {{
+  background:#dcf8c6; /* right (green) */
+  border-top-right-radius: 0;
+}}
+
+.meta {{ font-size:11px; color:#6b7280; margin-top:4px; text-align:right; }}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -135,22 +159,21 @@ AUTO_SCROLL_JS=(
     "}catch(e){}"
     "</script>"
 )
+
 def render_chat_html(history, show_typing=False):
-    parts=['<div class="chat-wrapper"><div id="scroll"><div class="container-box">']
+    parts=['<div id="scroll" class="chat-surface">']
     for m in history:
-        role=m.get("role",""); content=clean_md(m.get("content","")); content=html.escape(content)
+        role=m.get("role","")
+        content=clean_md(m.get("content",""))
+        content=html.escape(content)
         ts=m.get("ts","")
         try: tsv=datetime.fromisoformat(ts).strftime("%d/%m/%Y %H:%M")
         except Exception: tsv=ts
-        if role=="assistant":
-            parts.append('<div class="message-row"><div class="badge-assistant">Assistant</div>')
-            parts.append(f'<div class="bubble assistant">{content}<div class="meta">Assistente · {tsv}</div></div></div>')
-        else:
-            parts.append('<div class="message-row">')
-            parts.append(f'<div class="bubble user">{content}<div class="meta">Tu · {tsv}</div></div></div>')
+        cls = "user" if role=="user" else "assistant"
+        parts.append(f'<div class="row {cls}"><div class="bubble {cls}">{content}<div class="meta">{tsv}</div></div></div>')
     if show_typing:
-        parts.append('<div class="message-row"><div class="badge-assistant">Assistant</div><div class="bubble assistant typing">Sta scrivendo…</div></div>')
-    parts.append('</div></div></div>'); parts.append(AUTO_SCROLL_JS)
+        parts.append('<div class="row assistant"><div class="bubble assistant" style="opacity:.85;">Sta scrivendo…</div></div>')
+    parts.append('</div>'); parts.append(AUTO_SCROLL_JS)
     return "".join(parts)
 
 def render_chat(ph, history, show_typing=False):
@@ -175,7 +198,7 @@ with left:
     st.markdown('<div class="nav-radio">', unsafe_allow_html=True)
     ss["nav"] = st.radio("Navigazione", ["Documenti","Estrazione","Chat","Cronologia","Impostazioni"],
                          index=["Documenti","Estrazione","Chat","Cronologia","Impostazioni"].index(ss["nav"]),
-                         label_visibility="collapsed", key="nav_v7")
+                         label_visibility="collapsed", key="nav_v8")
     st.markdown('</div>', unsafe_allow_html=True)
 
     st.divider()
@@ -269,7 +292,8 @@ with right:
                                 temp=ss["chat_history"]+[{"role":"assistant","content":partial,"ts":ts2}]
                                 render_chat(chat_ph, temp, show_typing=False)
                     except Exception: pass
-                final=clean_md(partial); ss["chat_history"].append({"role":"assistant","content":final,"ts":ts2})
+                final=clean_md(partial) if partial.strip() else "Mi dispiace, non posso rispondere a questa domanda in base al documento fornito."
+                ss["chat_history"].append({"role":"assistant","content":final,"ts":ts2})
                 render_chat(chat_ph, ss["chat_history"], show_typing=False)
             except Exception as api_err:
                 render_chat(chat_ph, ss["chat_history"], show_typing=False)
