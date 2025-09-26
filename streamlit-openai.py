@@ -56,19 +56,19 @@ def get_aoai_client():
 
 st.set_page_config(page_title="EasyLook.DOC", page_icon="💬", layout="wide")
 
-PRIMARY=os.getenv("BRAND_PRIMARY","#2a7fa9"); ACCENT=os.getenv("BRAND_ACCENT","#e6df63"); SECONDARY=os.getenv("BRAND_SECONDARY","#0aa1c0")
+PRIMARY=os.getenv("BRAND_PRIMARY","#2A7FA9"); ACCENT=os.getenv("BRAND_ACCENT","#F4D03F"); SECONDARY=os.getenv("BRAND_SECONDARY","#0AA1C0")
 css = """
 <style>
 :root { --brand-primary: __P__; --brand-accent: __A__; --brand-secondary: __S__; --bg:#f7f7f8; --text:#1c1c1c; }
 html, body, [data-testid=stAppViewContainer]{ background: var(--bg); }
 .block-container{max-width:100% !important; padding-left:16px; padding-right:16px;}
-.menu-card{background:#fff;border:1px solid #eee;border-radius:14px;padding:16px;position:sticky;top:72px;height:calc(100vh - 96px);overflow:auto;}
+.menu-card{background:#fff;border:1px solid #eee;border-radius:14px;padding:16px;position:sticky;top:16px;height:calc(100vh - 32px);overflow:auto;}
 .right-card{background:#fff;border:1px solid #eee;border-radius:14px;padding:0;overflow:hidden;}
 .logo-wrap{display:flex;align-items:center;gap:12px;margin-bottom:12px;}
 .logo-title{font-size:22px;font-weight:800;color:var(--brand-primary);letter-spacing:.2px;}
 .badge{font-size:12px;background:linear-gradient(90deg,var(--brand-accent),var(--brand-secondary));color:#fff;padding:3px 8px;border-radius:999px;}
 .nav-title{font-size:12px;letter-spacing:.8px;color:#667;text-transform:uppercase;margin:4px 0 6px;}
-.nav-radio .stRadio>div{gap:6px;}
+.nav-radio .stRadio>div{gap:6px;flex-direction:column;}
 .nav-radio label{display:block;width:100%;}
 .kpi{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:10px;}
 .kpi .card{background:#fcfdff;border:1px solid #eef2f8;border-radius:12px;padding:10px;}
@@ -87,8 +87,8 @@ html, body, [data-testid=stAppViewContainer]{ background: var(--bg); }
 #scroll{height:100%;overflow:auto;overflow-x:hidden;padding:0 8px;width:100%;box-sizing:border-box;}
 .action-bar{padding:10px 14px;border-top:1px solid #eee;display:flex;gap:10px;align-items:center;justify-content:flex-end;}
 .action-bar .note{color:#667;font-size:12px;margin-right:auto;}
-.primary-btn{border:none;border-radius:10px;padding:8px 12px;background:var(--brand-primary);color:#fff;font-weight:600;}
-.ghost-btn{border:1px solid #dde3ea;border-radius:10px;padding:8px 12px;background:#fff;color:#203040;font-weight:600;}
+.primary-btn{border:none;border-radius:10px;padding:10px 16px;background:var(--brand-primary);color:#fff;font-weight:600;box-shadow:0 2px 4px rgba(0,0,0,0.1);transition:background 0.3s ease;}
+.ghost-btn{border:1px solid #dde3ea;border-radius:10px;padding:10px 16px;background:#fff;color:#203040;font-weight:600;box-shadow:0 2px 4px rgba(0,0,0,0.05);transition:background 0.3s ease;}
 </style>
 """.replace("__P__", PRIMARY).replace("__A__", ACCENT).replace("__S__", SECONDARY)
 st.markdown(css, unsafe_allow_html=True)
