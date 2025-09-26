@@ -60,12 +60,12 @@ def get_aoai_client():
     return client, DEPLOYMENT
 
 # ----------------------
-# Styles: two boxes (left white menu, right grey chat) + WhatsApp-like bubbles
+# Styles: LEFT = white flat panel; RIGHT = boxed chat; WhatsApp-like bubbles
 # ----------------------
 PRIMARY = os.getenv("BRAND_PRIMARY", "#2a7fa9")
 ACCENT  = os.getenv("BRAND_ACCENT",  "#e6df63")
 SECOND  = os.getenv("BRAND_SECONDARY", "#0aa1c0")
-BG_APP  = "#f0f2f5"  # WhatsApp-ish background
+BG_APP  = "#f0f2f5"  # app background
 
 CSS = f"""
 <style>
@@ -73,29 +73,32 @@ CSS = f"""
 html, body, [data-testid=stAppViewContainer] {{ background:{BG_APP}; }}
 .block-container {{ max-width: 1240px; }}
 
-/* generic box */
+/* generic boxed container (only for right column) */
 .box {{
   border: 1px solid #e2e8f0;
   border-radius: 14px;
   padding: 16px;
   height: calc(100vh - 120px);
   overflow: hidden;
+  background:#e5ddd5; /* WhatsApp-like */
 }}
 
-/* left = white menu */
+/* LEFT column: flat white panel (no border, no extra padding) */
 .menu-panel {{
   background:#ffffff;
-  display:flex; flex-direction:column; gap:14px;
+  padding: 0;           /* no top bar */
+  border: none;
+  border-radius: 0;
+  box-shadow:none;
+  min-height: calc(100vh - 120px);
 }}
 
-/* right = grey chat container */
-.chat-panel {{
-  background:#e5ddd5; /* WhatsApp chat bg */
-  display:flex; flex-direction:column; gap:12px;
+.menu-inner {{
+  padding: 0 8px 8px 0; /* small right/bottom padding to breathe */
 }}
 
 /* titles */
-.panel-title {{ font-weight:900; font-size:20px; margin:0 0 6px 0; color:#1f2b3a; }}
+.panel-title {{ font-weight:900; font-size:20px; margin: 0 0 8px 0; color:#1f2b3a; }}
 
 /* radio spacing */
 .nav-radio [data-baseweb="radio"] > div {{ display:flex; flex-direction:column; row-gap:12px; }}
@@ -131,17 +134,15 @@ html, body, [data-testid=stAppViewContainer] {{ background:{BG_APP}; }}
   border: 1px solid rgba(0,0,0,0.05);
 }}
 
-.bubble.assistant {{
-  background:#ffffff; /* left */
-  border-top-left-radius: 0;
-}}
-
-.bubble.user {{
-  background:#dcf8c6; /* right (green) */
-  border-top-right-radius: 0;
-}}
+.bubble.assistant {{ background:#ffffff; border-top-left-radius: 0; }}
+.bubble.user {{ background:#dcf8c6; border-top-right-radius: 0; }}
 
 .meta {{ font-size:11px; color:#6b7280; margin-top:4px; text-align:right; }}
+
+/* buttons look */
+.stButton>button {{ background: var(--brand-primary) !important; color:#fff !important; border-radius:10px !important; border:1px solid transparent !important; }}
+.stButton>button:hover {{ filter:brightness(0.95); }}
+.stTextInput>div>div>input {{ background:#f8fafc; }}
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -186,26 +187,25 @@ def render_chat(ph, history, show_typing=False):
 # ----------------------
 left, right = st.columns([0.9, 3.1], gap="large")
 
-# ----- LEFT BOX: MENU + DOCUMENTO (white) -----
+# ----- LEFT: FLAT WHITE PANEL (no .box) -----
 with left:
-    st.markdown('<div class="box menu-panel">', unsafe_allow_html=True)
+    st.markdown('<div class="menu-panel"><div class="menu-inner">', unsafe_allow_html=True)
+
     # Logo / brand (optional)
     try:
         st.image("images/Nuovo_Logo.png", width=180)
     except Exception:
         st.markdown(f'<div class="panel-title">easy<span style="color:{ACCENT}">look</span><span style="color:{SECOND}">.doc</span></div>', unsafe_allow_html=True)
 
-    st.markdown('<div class="nav-radio">', unsafe_allow_html=True)
+    st.markdown("<div class='panel-title' style='font-size:12px; letter-spacing:.8px; color:#667; text-transform:uppercase; margin-top:4px;'>Menu</div>", unsafe_allow_html=True)
     ss["nav"] = st.radio("Navigazione", ["Documenti","Estrazione","Chat","Cronologia","Impostazioni"],
                          index=["Documenti","Estrazione","Chat","Cronologia","Impostazioni"].index(ss["nav"]),
-                         label_visibility="collapsed", key="nav_v8")
-    st.markdown('</div>', unsafe_allow_html=True)
+                         label_visibility="collapsed", key="nav_v10")
 
-    st.divider()
-    st.markdown('<div class="panel-title">Documento</div>', unsafe_allow_html=True)
+    st.markdown('<div class="panel-title" style="margin-top:8px;">Documento</div>', unsafe_allow_html=True)
 
     if not HAVE_DOCINT:
-        st.warning("Installa azure-ai-formrecognizer>=3.3.0 per l'estrazione.")
+        st.warning("Installa azure-ai-formrecognizer>=3.3.0 per l\'estrazione.")
     else:
         ss["file_name"]=st.text_input("Nome file nel container (es. 'contratto1.pdf')", ss.get("file_name",""))
         c1,c2 = st.columns([1,1])
@@ -249,13 +249,13 @@ with left:
                     else:
                         st.warning("Nessun testo estratto. Verifica file o SAS."); ss["doc_ready"]=False
                 except Exception as e:
-                    st.error(f"Errore durante l'analisi del documento: {e}"); ss["doc_ready"]=False
+                    st.error(f"Errore durante l\'analisi del documento: {e}"); ss["doc_ready"]=False
 
-    st.markdown('</div>', unsafe_allow_html=True)  # end left box
+    st.markdown('</div></div>', unsafe_allow_html=True)  # end menu-panel + inner
 
-# ----- RIGHT BOX: CHAT (grey) -----
+# ----- RIGHT: BOXED CHAT -----
 with right:
-    st.markdown('<div class="box chat-panel">', unsafe_allow_html=True)
+    st.markdown('<div class="box">', unsafe_allow_html=True)
     st.markdown('<div class="panel-title">Chat</div>', unsafe_allow_html=True)
 
     # Chat area
