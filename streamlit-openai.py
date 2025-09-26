@@ -1,4 +1,4 @@
-# streamlit-openai.py (patched v5: autoscroll + components placeholder fix)
+# streamlit-openai.py (patched v7: bubbles 85% width)
 import os
 import re
 import html
@@ -180,15 +180,15 @@ def get_aoai_client():
     return client, DEPLOYMENT_NAME
 
 # -----------------------
-# Rendering bolle (con components.html + AUTOSCROLL)
+# Rendering bolle (FULL-WIDTH + 85% + AUTOSCROLL)
 # -----------------------
 CHAT_CSS = (
     "<style>"
-    "html,body,#root{height:100%;}"
-    ".chat-outer{height:100%;}"
-    ".chat-wrapper{max-width:900px;margin:10px 0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;}"
+    "html,body,#root{height:100%;margin:0;padding:0;}"
+    ".chat-outer{width:100%;height:100%;}"
+    ".chat-wrapper{width:100%;max-width:none;margin:10px 0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;}"
     ".message-row{display:flex;margin:6px 8px;}"
-    ".bubble{padding:10px 14px;border-radius:18px;max-width:75%;box-shadow:0 1px 0 rgba(0,0,0,0.06);line-height:1.4;white-space:pre-wrap;word-wrap:break-word;}"
+    ".bubble{padding:10px 14px;border-radius:18px;max-width:85%;box-shadow:0 1px 0 rgba(0,0,0,0.06);line-height:1.4;white-space:pre-wrap;word-wrap:break-word;}"
     ".user{margin-left:auto;background:linear-gradient(180deg,#DCF8C6,#CFF2B7);text-align:left;border-bottom-right-radius:4px;}"
     ".assistant{margin-right:auto;background:#ffffff;border:1px solid #e6e6e6;text-align:left;border-bottom-left-radius:4px;}"
     ".meta{font-size:11px;color:#888;margin-top:4px;}"
@@ -201,7 +201,7 @@ CHAT_CSS = (
 AUTO_SCROLL_JS = (
     "<script>"
     "try{"
-    "const go=()=>{window.scrollTo(0,document.body.scrollHeight);const sc=document.getElementById('scroll');if(sc){sc.scrollTop=sc.scrollHeight;}};"
+    "const go=()=>{const sc=document.getElementById('scroll');if(sc){sc.scrollTop=sc.scrollHeight;}};"
     "go();"
     "const obs=new MutationObserver(()=>go());"
     "obs.observe(document.body,{childList:true,subtree:true,characterData:true});"
@@ -231,17 +231,17 @@ def render_chat_html(history: list, show_typing: bool=False) -> str:
     parts.append(AUTO_SCROLL_JS)
     return "".join(parts)
 
-def render_chat(placeholder, history, show_typing=False, height=440):
+def render_chat(placeholder, history, show_typing=False, height=520):
     html_str = render_chat_html(history, show_typing=show_typing)
     placeholder.empty()
     with placeholder:
-        components.html(html_str, height=height, scrolling=True)
+        components.html(html_str, height=height, scrolling=False)
 
 # -----------------------
 # STEP 2: chat (visibile SOLO quando doc_ready=True)
 # -----------------------
 if st.session_state.get("doc_ready", False):
-    st.subheader("💬 Step 2 · Fai la tua ricerca")
+    st.subheader("💬 Step 2 · Fai la tua ricerca (bolle 85%)")
 
     chat_placeholder = st.empty()
     render_chat(chat_placeholder, st.session_state["chat_history"], show_typing=False)
