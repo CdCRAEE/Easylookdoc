@@ -1,8 +1,10 @@
-# streamlit-openai.py
+# streamlit-openai.py (patched)
 import os
-import streamlit as st
-from datetime import datetime, timezone
+import re
 import html
+from datetime import datetime, timezone
+
+import streamlit as st
 
 # Azure OpenAI (con AAD)
 from openai import AzureOpenAI
@@ -15,6 +17,24 @@ try:
     HAVE_FORMRECOGNIZER = True
 except Exception:
     HAVE_FORMRECOGNIZER = False
+
+# -----------------------
+# HELPERS
+# -----------------------
+def clean_markdown_fences(text: str) -> str:
+    """
+    Rimuove code fence markdown (``` e opzionale linguaggio: ```python).
+    Lascia il contenuto interno come testo semplice.
+    """
+    if not text:
+        return ""
+    # rimuove sia apertura con linguaggio che chiusura, anche con newline dopo ```lang
+    text = re.sub(r"```[a-zA-Z0-9_-]*\n?", "", text)
+    text = text.replace("```", "")
+    return text.strip()
+
+def local_iso_now() -> str:
+    return datetime.now(timezone.utc).astimezone().isoformat()
 
 # -----------------------
 # PAGE + LOGO
@@ -58,7 +78,7 @@ try:
     client = AzureOpenAI(
         api_version=API_VERSION,
         azure_endpoint=AZURE_OPENAI_ENDPOINT,
-        azure_ad_token=aad_token  # ✅ uso AAD correttamente
+        azure_ad_token=aad_token  # uso AAD correttamente
     )
 except Exception as e:
     st.error(f"Errore inizializzazione AzureOpenAI: {e}")
@@ -131,7 +151,7 @@ else:
                     st.success("✅ Testo estratto correttamente!")
                     st.text_area("Anteprima testo (~4000 caratteri):", full_text[:4000], height=300)
                     st.session_state["document_text"] = full_text
-                    st.session_state.pop("chat_history", None)  # reset chat quando cambi documento
+                    st.session_state["chat_history"] = []  # reset chat quando cambi documento
                 else:
                     st.warning("Nessun testo estratto. Verifica file o SAS.")
 
@@ -139,95 +159,91 @@ else:
                 st.error(f"Errore durante l'analisi del documento: {e}")
 
 # -----------------------
-# STEP 2: chat
+# STEP 2: chat (visibile SOLO dopo l'estrazione)
 # -----------------------
-st.subheader("💬 Step 2 · Fai la tua ricerca")
+if "document_text" in st.session_state:
+    st.subheader("💬 Step 2 · Fai la tua ricerca")
 
-CONTEXT_CHAR_LIMIT = 12000
-ASSISTANT_SYSTEM_INSTRUCTION = "Sei un assistente che risponde SOLO sulla base del documento fornito."
+    CONTEXT_CHAR_LIMIT = 12000
+    ASSISTANT_SYSTEM_INSTRUCTION = "Sei un assistente che risponde SOLO sulla base del documento fornito."
 
-def ensure_chat_history():
-    if "chat_history" not in st.session_state:
-        st.session_state["chat_history"] = []  # {role, content, ts}
+    def ensure_chat_history():
+        if "chat_history" not in st.session_state:
+            st.session_state["chat_history"] = []  # {role, content, ts}
 
-def build_messages_for_api(document_text: str, history: list):
-    messages = [{"role": "system", "content": ASSISTANT_SYSTEM_INSTRUCTION}]
+    def build_messages_for_api(document_text: str, history: list):
+        messages = [{"role": "system", "content": ASSISTANT_SYSTEM_INSTRUCTION}]
 
-    if document_text:
-        doc_content = document_text
-        if len(doc_content) > CONTEXT_CHAR_LIMIT:
-            doc_content = "(---Documento troncato - mostra l'ultima parte---)\n" + doc_content[-CONTEXT_CHAR_LIMIT:]
-        messages.append({"role": "system", "content": f"Contenuto documento:\n{doc_content}"})
+        if document_text:
+            doc_content = document_text
+            if len(doc_content) > CONTEXT_CHAR_LIMIT:
+                doc_content = "(---Documento troncato - mostra l'ultima parte---)\n" + doc_content[-CONTEXT_CHAR_LIMIT:]
+            messages.append({"role": "system", "content": f"Contenuto documento:\n{doc_content}"})
 
-    # include history, dal più recente finché non superi il limite
-    chars = 0
-    kept = []
-    for msg in reversed(history):
-        msg_text = f"{msg['role']}: {msg['content']}\n"
-        if chars + len(msg_text) > CONTEXT_CHAR_LIMIT:
-            break
-        kept.append(msg)
-        chars += len(msg_text)
-    for m in reversed(kept):
-        messages.append({"role": m["role"], "content": m["content"]})
+        # include history dal più recente finché non superi il limite
+        chars = 0
+        kept = []
+        for msg in reversed(history):
+            msg_text = f"{msg['role']}: {msg['content']}\n"
+            if chars + len(msg_text) > CONTEXT_CHAR_LIMIT:
+                break
+            kept.append(msg)
+            chars += len(msg_text)
+        for m in reversed(kept):
+            messages.append({"role": m["role"], "content": m["content"]})
 
-    return messages
+        return messages
 
-# HTML/CSS per bolle chat stile WhatsApp
-CHAT_CSS = """
-<style>
-.chat-wrapper { max-width: 900px; margin: 10px 0; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
-.message-row { display: flex; margin: 6px 8px; }
-.bubble { padding: 10px 14px; border-radius: 18px; max-width: 75%; box-shadow: 0 1px 0 rgba(0,0,0,0.06);
-          line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
-.user { margin-left: auto; background: linear-gradient(180deg, #DCF8C6, #CFF2B7); text-align: left; border-bottom-right-radius: 4px; }
-.assistant { margin-right: auto; background: #ffffff; border: 1px solid #e6e6e6; text-align: left; border-bottom-left-radius: 4px; }
-.meta { font-size: 11px; color: #888; margin-top: 4px; }
-.typing { font-style: italic; opacity: 0.9; }
-.container-box { padding: 12px; border-radius: 8px; background: #f7f7f8; }
-</style>
-"""
+    # HTML/CSS per bolle chat stile WhatsApp
+    CHAT_CSS = """    <style>
+    .chat-wrapper { max-width: 900px; margin: 10px 0; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
+    .message-row { display: flex; margin: 6px 8px; }
+    .bubble { padding: 10px 14px; border-radius: 18px; max-width: 75%; box-shadow: 0 1px 0 rgba(0,0,0,0.06);
+              line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
+    .user { margin-left: auto; background: linear-gradient(180deg, #DCF8C6, #CFF2B7); text-align: left; border-bottom-right-radius: 4px; }
+    .assistant { margin-right: auto; background: #ffffff; border: 1px solid #e6e6e6; text-align: left; border-bottom-left-radius: 4px; }
+    .meta { font-size: 11px; color: #888; margin-top: 4px; }
+    .typing { font-style: italic; opacity: 0.9; }
+    .container-box { padding: 12px; border-radius: 8px; background: #f7f7f8; }
+    </style>
+    """
 
-def render_chat_html(history: list, show_typing=False):
-    html_parts = [CHAT_CSS, '<div class="chat-wrapper container-box">']
-    for m in history:
-        role = m.get("role", "")
-        # Escape per evitare che markdown/backtick si trasformino in blocchi codice
-        content = html.escape(m.get("content", ""))
-        ts_iso = m.get("ts", "")
-        # Timestamp più leggibile
-        try:
-            ts_view = datetime.fromisoformat(ts_iso).strftime("%d/%m/%Y %H:%M")
-        except Exception:
-            ts_view = ts_iso
-        bubble_class = "user" if role == "user" else "assistant"
-        who = "Tu" if role == "user" else "Assistente"
-        html_parts.append(f'''
-            <div class="message-row">
-              <div class="bubble {bubble_class}">{content}
-                <div class="meta">{who} · {ts_view}</div>
-              </div>
+    def render_chat_html(history: list, show_typing=False):
+        html_parts = [CHAT_CSS, '<div class="chat-wrapper container-box">']
+        for m in history:
+            role = m.get("role", "")
+            # Pulisci possibili code-fences e poi escape per sicurezza HTML
+            content = clean_markdown_fences(m.get("content", ""))
+            content = html.escape(content)
+            ts_iso = m.get("ts", "")
+            # Timestamp leggibile
+            try:
+                ts_view = datetime.fromisoformat(ts_iso).strftime("%d/%m/%Y %H:%M")
+            except Exception:
+                ts_view = ts_iso
+            bubble_class = "user" if role == "user" else "assistant"
+            who = "Tu" if role == "user" else "Assistente"
+            html_parts.append(f"""                <div class="message-row">
+                  <div class="bubble {bubble_class}">{content}
+                    <div class="meta">{who} · {ts_view}</div>
+                  </div>
+                </div>
+            """)
+        if show_typing:
+            html_parts.append("""            <div class="message-row">
+              <div class="bubble assistant typing">Sto scrivendo...</div>
             </div>
-        ''')
-    if show_typing:
-        html_parts.append('''
-        <div class="message-row">
-          <div class="bubble assistant typing">Sto scrivendo...</div>
-        </div>
-        ''')
-    html_parts.append("</div>")
-    return "\n".join(html_parts)
+            """)
+        html_parts.append("</div>")
+        return "\n".join(html_parts)
 
-ensure_chat_history()
+    ensure_chat_history()
 
-if "document_text" not in st.session_state:
-    st.info("Prima estrai un documento dal Blob (Step 1).")
-else:
     cols = st.columns([1, 6, 1])
     with cols[0]:
         if st.button("🧹 Reset chat"):
             st.session_state["chat_history"] = []
-            st.rerun()  # ✅ API nuova
+            st.rerun()
     with cols[2]:
         st.caption("Sessione locale al browser")
 
@@ -239,10 +255,11 @@ else:
         submit = st.form_submit_button("Invia")
 
         if submit and user_prompt:
-            ts = datetime.now(timezone.utc).astimezone().isoformat()
+            ts = local_iso_now()
+            # Pulisci anche il messaggio dell'utente da eventuali code fences
             st.session_state["chat_history"].append({
                 "role": "user",
-                "content": user_prompt,
+                "content": clean_markdown_fences(user_prompt),
                 "ts": ts
             })
 
@@ -263,7 +280,8 @@ else:
                         max_tokens=600
                     )
                 assistant_content = response.choices[0].message.content or ""
-                ts2 = datetime.now(timezone.utc).astimezone().isoformat()
+                assistant_content = clean_markdown_fences(assistant_content)  # << evitare blocchi codice
+                ts2 = local_iso_now()
                 st.session_state["chat_history"].append({
                     "role": "assistant",
                     "content": assistant_content,
@@ -274,3 +292,5 @@ else:
             except Exception as api_err:
                 chat_placeholder.markdown(render_chat_html(st.session_state["chat_history"]), unsafe_allow_html=True)
                 st.error(f"❌ Errore nella chiamata API: {api_err}")
+else:
+    st.info("➡️ Prima completa lo Step 1 (estrai un documento) per attivare la chat.")
