@@ -1,10 +1,11 @@
-# streamlit-openai.py (patched v3: streaming + 'sta scrivendo')
+# streamlit-openai.py (patched v5: autoscroll + components placeholder fix)
 import os
 import re
 import html
 from datetime import datetime, timezone
 
 import streamlit as st
+import streamlit.components.v1 as components
 
 # Azure OpenAI (con AAD)
 from openai import AzureOpenAI
@@ -179,26 +180,39 @@ def get_aoai_client():
     return client, DEPLOYMENT_NAME
 
 # -----------------------
-# Rendering bolle
+# Rendering bolle (con components.html + AUTOSCROLL)
 # -----------------------
-CHAT_CSS = """<style>
-.chat-wrapper { max-width: 900px; margin: 10px 0; font-family: "Helvetica Neue", Helvetica, Arial, sans-serif; }
-.message-row { display: flex; margin: 6px 8px; }
-.bubble { padding: 10px 14px; border-radius: 18px; max-width: 75%; box-shadow: 0 1px 0 rgba(0,0,0,0.06);
-          line-height: 1.4; white-space: pre-wrap; word-wrap: break-word; }
-.user { margin-left: auto; background: linear-gradient(180deg, #DCF8C6, #CFF2B7); text-align: left; border-bottom-right-radius: 4px; }
-.assistant { margin-right: auto; background: #ffffff; border: 1px solid #e6e6e6; text-align: left; border-bottom-left-radius: 4px; }
-.meta { font-size: 11px; color: #888; margin-top: 4px; }
-.typing { font-style: italic; opacity: 0.9; }
-.container-box { padding: 12px; border-radius: 8px; background: #f7f7f8; }
-</style>
-"""
+CHAT_CSS = (
+    "<style>"
+    "html,body,#root{height:100%;}"
+    ".chat-outer{height:100%;}"
+    ".chat-wrapper{max-width:900px;margin:10px 0;font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;}"
+    ".message-row{display:flex;margin:6px 8px;}"
+    ".bubble{padding:10px 14px;border-radius:18px;max-width:75%;box-shadow:0 1px 0 rgba(0,0,0,0.06);line-height:1.4;white-space:pre-wrap;word-wrap:break-word;}"
+    ".user{margin-left:auto;background:linear-gradient(180deg,#DCF8C6,#CFF2B7);text-align:left;border-bottom-right-radius:4px;}"
+    ".assistant{margin-right:auto;background:#ffffff;border:1px solid #e6e6e6;text-align:left;border-bottom-left-radius:4px;}"
+    ".meta{font-size:11px;color:#888;margin-top:4px;}"
+    ".typing{font-style:italic;opacity:.9;}"
+    ".container-box{padding:12px;border-radius:8px;background:#f7f7f8;}"
+    "#scroll{height:100%;overflow:auto;padding-right:6px;}"
+    "</style>"
+)
 
-def render_chat_html(history: list, show_typing=False):
-    html_parts = [CHAT_CSS, '<div class="chat-wrapper container-box">']
+AUTO_SCROLL_JS = (
+    "<script>"
+    "try{"
+    "const go=()=>{window.scrollTo(0,document.body.scrollHeight);const sc=document.getElementById('scroll');if(sc){sc.scrollTop=sc.scrollHeight;}};"
+    "go();"
+    "const obs=new MutationObserver(()=>go());"
+    "obs.observe(document.body,{childList:true,subtree:true,characterData:true});"
+    "}catch(e){}"
+    "</script>"
+)
+
+def render_chat_html(history: list, show_typing: bool=False) -> str:
+    parts = [CHAT_CSS, '<div class="chat-outer"><div id="scroll"><div class="chat-wrapper container-box">']
     for m in history:
         role = m.get("role", "")
-        # Pulisci possibili code-fences e poi escape per sicurezza HTML
         content = clean_markdown_fences(m.get("content", ""))
         content = html.escape(content)
         ts_iso = m.get("ts", "")
@@ -208,19 +222,20 @@ def render_chat_html(history: list, show_typing=False):
             ts_view = ts_iso
         bubble_class = "user" if role == "user" else "assistant"
         who = "Tu" if role == "user" else "Assistente"
-        html_parts.append(f"""            <div class="message-row">
-              <div class="bubble {bubble_class}">{content}
-                <div class="meta">{who} · {ts_view}</div>
-              </div>
-            </div>
-        """)
+        parts.append('<div class="message-row">')
+        parts.append(f'<div class="bubble {bubble_class}">{content}<div class="meta">{who} · {ts_view}</div></div>')
+        parts.append('</div>')
     if show_typing:
-        html_parts.append("""        <div class="message-row">
-          <div class="bubble assistant typing">Sta scrivendo…</div>
-        </div>
-        """)
-    html_parts.append("</div>")
-    return "\n".join(html_parts)
+        parts.append('<div class="message-row"><div class="bubble assistant typing">Sta scrivendo…</div></div>')
+    parts.append('</div></div>')  # end wrapper + scroll
+    parts.append(AUTO_SCROLL_JS)
+    return "".join(parts)
+
+def render_chat(placeholder, history, show_typing=False, height=440):
+    html_str = render_chat_html(history, show_typing=show_typing)
+    placeholder.empty()
+    with placeholder:
+        components.html(html_str, height=height, scrolling=True)
 
 # -----------------------
 # STEP 2: chat (visibile SOLO quando doc_ready=True)
@@ -229,83 +244,74 @@ if st.session_state.get("doc_ready", False):
     st.subheader("💬 Step 2 · Fai la tua ricerca")
 
     chat_placeholder = st.empty()
-    chat_placeholder.markdown(render_chat_html(st.session_state["chat_history"]), unsafe_allow_html=True)
+    render_chat(chat_placeholder, st.session_state["chat_history"], show_typing=False)
 
-    with st.form(key="chat_form", clear_on_submit=True):
-        user_prompt = st.text_input("✏️ Scrivi la tua domanda sul documento:", key="user_input")
-        submit = st.form_submit_button("Invia")
+    # Composer in stile chat (senza bottone, field nativo streamlit)
+    user_prompt = st.chat_input("Scrivi un messaggio…")  # <- interfaccia tipo chat
+    if user_prompt:
+        ts = local_iso_now()
+        st.session_state["chat_history"].append({
+            "role": "user",
+            "content": clean_markdown_fences(user_prompt),
+            "ts": ts
+        })
 
-        if submit and user_prompt:
-            ts = local_iso_now()
-            st.session_state["chat_history"].append({
-                "role": "user",
-                "content": clean_markdown_fences(user_prompt),
-                "ts": ts
-            })
+        # mostra 'sta scrivendo…'
+        render_chat(chat_placeholder, st.session_state["chat_history"], show_typing=True)
 
-            # Mostra subito il placeholder 'sta scrivendo…'
-            chat_placeholder.markdown(
-                render_chat_html(st.session_state["chat_history"], show_typing=True),
-                unsafe_allow_html=True
+        # Lazy init client solo quando serve
+        client, DEPLOYMENT_NAME = get_aoai_client()
+
+        # Prepara messaggi
+        CONTEXT_CHAR_LIMIT = 12000
+        ASSISTANT_SYSTEM_INSTRUCTION = "Sei un assistente che risponde SOLO sulla base del documento fornito."
+
+        def build_messages_for_api(document_text: str, history: list):
+            messages = [{"role": "system", "content": ASSISTANT_SYSTEM_INSTRUCTION}]
+            document_text = st.session_state.get("document_text", "")
+            if document_text:
+                doc_content = document_text
+                if len(doc_content) > CONTEXT_CHAR_LIMIT:
+                    doc_content = "(---Documento troncato - mostra l'ultima parte---)\n" + doc_content[-CONTEXT_CHAR_LIMIT:]
+                messages.append({"role": "system", "content": f"Contenuto documento:\n{doc_content}"})
+            # include history (pulita)
+            for m in history:
+                messages.append({"role": m["role"], "content": clean_markdown_fences(m["content"]) })
+            return messages
+
+        api_messages = build_messages_for_api(st.session_state.get("document_text", ""), st.session_state["chat_history"])
+
+        # Streaming con aggiornamento progressivo della bolla assistente
+        partial = ""
+        ts2 = local_iso_now()
+        try:
+            stream = client.chat.completions.create(
+                model=DEPLOYMENT_NAME,
+                messages=api_messages,
+                temperature=0.3,
+                max_tokens=600,
+                stream=True
             )
+            for chunk in stream:
+                try:
+                    choices = getattr(chunk, "choices", [])
+                    if choices:
+                        delta = getattr(choices[0], "delta", None)
+                        if delta and getattr(delta, "content", None):
+                            piece = delta.content
+                            partial += piece
+                            temp_history = st.session_state["chat_history"] + [{"role": "assistant", "content": partial, "ts": ts2}]
+                            render_chat(chat_placeholder, temp_history, show_typing=False)
+                except Exception:
+                    pass
 
-            # Lazy init client solo quando serve
-            client, DEPLOYMENT_NAME = get_aoai_client()
+            final = clean_markdown_fences(partial)
+            st.session_state["chat_history"].append({"role": "assistant", "content": final, "ts": ts2})
+            render_chat(chat_placeholder, st.session_state["chat_history"], show_typing=False)
 
-            # Prepara messaggi
-            CONTEXT_CHAR_LIMIT = 12000
-            ASSISTANT_SYSTEM_INSTRUCTION = "Sei un assistente che risponde SOLO sulla base del documento fornito."
-
-            # Costruisci il prompt per il modello
-            def build_messages_for_api(document_text: str, history: list):
-                messages = [{"role": "system", "content": ASSISTANT_SYSTEM_INSTRUCTION}]
-                document_text = st.session_state.get("document_text", "")
-                if document_text:
-                    doc_content = document_text
-                    if len(doc_content) > CONTEXT_CHAR_LIMIT:
-                        doc_content = "(---Documento troncato - mostra l'ultima parte---)\n" + doc_content[-CONTEXT_CHAR_LIMIT:]
-                    messages.append({"role": "system", "content": f"Contenuto documento:\n{doc_content}"})
-                # includi la history (con pulizia)
-                for m in history:
-                    messages.append({"role": m["role"], "content": clean_markdown_fences(m["content"]) })
-                return messages
-
-            api_messages = build_messages_for_api(st.session_state.get("document_text", ""), st.session_state["chat_history"])
-
-            # Streaming con aggiornamento progressivo della bolla assistente
-            partial = ""
-            ts2 = local_iso_now()
-            try:
-                with st.spinner("Sta scrivendo…"):
-                    stream = client.chat.completions.create(
-                        model=DEPLOYMENT_NAME,
-                        messages=api_messages,
-                        temperature=0.3,
-                        max_tokens=600,
-                        stream=True
-                    )
-                    for chunk in stream:
-                        try:
-                            choices = getattr(chunk, "choices", [])
-                            if choices:
-                                delta = getattr(choices[0], "delta", None)
-                                if delta and getattr(delta, "content", None):
-                                    piece = delta.content
-                                    partial += piece
-                                    # Render progressivo della chat con una bolla assistente temporanea
-                                    temp_history = st.session_state["chat_history"] + [{"role": "assistant", "content": partial, "ts": ts2}]
-                                    chat_placeholder.markdown(render_chat_html(temp_history), unsafe_allow_html=True)
-                        except Exception:
-                            # ignora chunk malformati
-                            pass
-
-                final = clean_markdown_fences(partial)
-                st.session_state["chat_history"].append({"role": "assistant", "content": final, "ts": ts2})
-                chat_placeholder.markdown(render_chat_html(st.session_state["chat_history"]), unsafe_allow_html=True)
-
-            except Exception as api_err:
-                chat_placeholder.markdown(render_chat_html(st.session_state["chat_history"]), unsafe_allow_html=True)
-                st.error(f"❌ Errore nella chiamata API (streaming): {api_err}")
+        except Exception as api_err:
+            render_chat(chat_placeholder, st.session_state["chat_history"], show_typing=False)
+            st.error(f"❌ Errore nella chiamata API (streaming): {api_err}")
 
     cols = st.columns([1, 6, 1])
     with cols[0]:
