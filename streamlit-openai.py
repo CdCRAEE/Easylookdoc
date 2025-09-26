@@ -1,14 +1,24 @@
-# easylook_verticalnav_integrated_v3.py
+# easylook_verticalnav_integrated_v4.py
+# V4: 
+# - Nessun box inutile sopra i titoli
+# - Sfondo doppio: area app grigio chiaro, pannelli (Documento + Chat) bianchi
+# - Menu verticale più largo, voci distanziate, pallino BLU
+# - Bubbles WhatsApp (utente giallo, assistente blu chiaro)
+# - Pannello Documento resta visibile anche in Chat
+
 import os, re, html
 from datetime import datetime, timezone
-import streamlit as st, streamlit.components.v1 as components
+import streamlit as st
+import streamlit.components.v1 as components
 
+# Map secrets -> env
 try:
     for k, v in st.secrets.items():
         os.environ.setdefault(k, str(v))
 except Exception:
     pass
 
+# Azure SDK
 from openai import AzureOpenAI
 from azure.identity import ClientSecretCredential
 try:
@@ -18,6 +28,7 @@ try:
 except Exception:
     HAVE_FORMRECOGNIZER = False
 
+# ---- STATE ----
 ss = st.session_state
 ss.setdefault("doc_ready", False)
 ss.setdefault("document_text", "")
@@ -25,6 +36,7 @@ ss.setdefault("chat_history", [])
 ss.setdefault("file_name", "")
 ss.setdefault("nav", "Estrazione")
 
+# ---- HELPERS ----
 def clean_md(t: str) -> str:
     if not t: return ""
     t = t.replace("\r\n","\n")
@@ -51,56 +63,77 @@ def get_aoai_client():
     client=AzureOpenAI(api_version=API_VERSION, azure_endpoint=AZURE_OPENAI_ENDPOINT, azure_ad_token=token)
     return client, DEPLOYMENT
 
+# ---- PAGE + BRAND ----
 st.set_page_config(page_title="EasyLook.DOC", page_icon="💬", layout="wide")
+PRIMARY=os.getenv("BRAND_PRIMARY","#2a7fa9")  # blu
+ACCENT=os.getenv("BRAND_ACCENT","#e6df63")    # giallo
+SECOND=os.getenv("BRAND_SECONDARY","#0aa1c0") # ciano
+BG_APP="#f2f4f7"    # grigio chiaro app
+BG_MENU="#eef2f6"   # grigio menu
+LIGHT_ASSIST="#e7f0ff"
+LIGHT_USER="#fff6c2"
 
-PRIMARY=os.getenv("BRAND_PRIMARY","#2a7fa9")
-ACCENT=os.getenv("BRAND_ACCENT","#e6df63")
-SECOND=os.getenv("BRAND_SECONDARY","#0aa1c0")
-LIGHT_ASSIST="#e8f2ff"; LIGHT_USER="#fff6c2"; BG_GREY="#f4f6f8"
-
-st.markdown(f"""
+CSS = f"""
 <style>
-:root {{ --brand-primary:{PRIMARY}; --brand-accent:{ACCENT}; --brand-secondary:{SECOND}; --bg:{BG_GREY}; }}
-html, body, [data-testid=stAppViewContainer] {{ background: var(--bg); }}
+:root {{
+  --brand-primary:{PRIMARY};
+  --brand-accent:{ACCENT};
+  --brand-secondary:{SECOND};
+  --primary-color:{PRIMARY};    /* forza il colore primario di Streamlit (radio, ecc.) */
+}}
+html, body, [data-testid=stAppViewContainer] {{ background:{BG_APP}; }}
 .block-container {{ max-width: 1200px; }}
 
-/* LEFT */
+/* LAYOUT */
+.wrapper {{ display:grid; grid-template-columns: 280px 1fr; gap:24px; }}
 .left-col {{ position: sticky; top: 16px; align-self:flex-start; }}
-.menu-card {{ background: #eef2f6; border:1px solid #dde3eb; border-radius:14px; padding:16px; }}
+.menu-card {{ background:{BG_MENU}; border:1px solid #dde3eb; border-radius:14px; padding:16px; }}
+
 .logo-title {{ font-weight:900; color:{PRIMARY}; font-size:20px; }}
 .logo-sub {{ color:{ACCENT}; font-weight:900; }}
 .logo-dot {{ color:{SECOND}; font-weight:900; }}
-.nav-title {{ font-size:12px; letter-spacing:.8px; color:#667; text-transform:uppercase; margin:8px 0 10px; }}
-.nav-radio [data-baseweb="radio"] > div {{ display:flex; flex-direction:column; row-gap:12px; }}
+
+.nav-title {{ font-size:12px; letter-spacing:.8px; color:#667; text-transform:uppercase; margin:10px 0 12px; }}
+
+/* Radio verticale: più largo, spaziato, PALLINO BLU */
+.nav-radio [data-baseweb="radio"] > div {{ display:flex; flex-direction:column; row-gap:14px; }}
+.nav-radio label p {{ font-weight:600; color:#203040; font-size:15px; }}
 .nav-radio input[type="radio"] {{ accent-color: var(--brand-primary) !important; width:18px; height:18px; }}
-.nav-radio label p {{ font-weight:600; color:#223; }}
 
-/* RIGHT panels */
-.panel {{ background:#fff; border:1px solid #e6eaf0; border-radius:14px; padding:18px; box-shadow: 0 2px 8px rgba(16,24,40,0.04); }}
-.section-title {{ font-size:22px; font-weight:800; color:#1f2b3a; margin-bottom:6px; }}
+/* PANNELLI DESTRA (bianchi) */
+.panel {{ background:#fff; border:1px solid #e6eaf0; border-radius:14px; padding:18px; box-shadow:0 2px 8px rgba(16,24,40,0.04); }}
+.section-title {{ font-size:22px; font-weight:800; color:#1f2b3a; margin-bottom:8px; }}
 
-/* Buttons */
-.stButton>button{{ background: var(--brand-primary) !important; color:#fff !important; border-radius:10px !important; border:1px solid transparent !important; }}
-.stButton>button:hover{{ filter:brightness(0.95); }}
-.btn-accent button{{ background: var(--brand-accent) !important; color:#1b1b1b !important; border:1px solid #e2e2e2 !important; }}
-.btn-outline button{{ background:#fff !important; color:#1f3a56 !important; border:2px solid #bcd0e5 !important; }}
-.stTextInput>div>div>input{{ background:#f7f9fc; }}
+/* BOTTONI */
+.stButton>button {{ background: var(--brand-primary) !important; color:#fff !important; border-radius:10px !important; border:1px solid transparent !important; }}
+.stButton>button:hover {{ filter:brightness(0.95); }}
+.btn-accent button {{ background: var(--brand-accent) !important; color:#1b1b1b !important; border:1px solid #e2e2e2 !important; }}
+.btn-outline button {{ background:#fff !important; color:#1f3a56 !important; border:2px solid #bcd0e5 !important; }}
 
-/* Chat bubbles */
-.stElement iframe, iframe[title="streamlit.components.v1.html"]{{ width:100% !important; display:block; }}
-.chat-wrapper{{ width:100%; }}
-.container-box{{ padding:14px; border-radius:8px; background:#fff; }}
-.message-row{{ display:flex; margin:8px 0; gap:10px; }}
-.bubble{{ padding:12px 16px; border-radius:14px; max-width:85%; line-height:1.45; border:1px solid #dbe6f3; }}
-.bubble.assistant{{ background:{LIGHT_ASSIST}; }}
-.bubble.user{{ background:{LIGHT_USER}; border-color:#efe39a; margin-left:auto; }}
-.badge-assistant{{ display:inline-block; background: var(--brand-primary); color:#fff; border-radius:999px; padding:6px 10px; font-weight:700; }}
-.meta{{ font-size:11px; color:#667; margin-top:4px; }}
-.typing{{ font-style:italic; opacity:.9; }}
-#scroll{{ height:560px; overflow:auto; overflow-x:hidden; padding-right:6px; }}
+.stTextInput>div>div>input {{ background:#f7f9fc; }}
+
+/* CHAT BUBBLES */
+.stElement iframe, iframe[title="streamlit.components.v1.html"] {{ width:100% !important; display:block; }}
+.chat-wrapper {{ width:100%; }}
+.container-box {{ padding:14px; border-radius:8px; background:#fff; }}
+.message-row {{ display:flex; margin:8px 0; gap:10px; }}
+.bubble {{ padding:12px 16px; border-radius:16px; max-width:85%; line-height:1.45; border:1px solid #dbe6f3; }}
+.bubble.assistant {{ background:{LIGHT_ASSIST}; }}
+.bubble.user {{ background:{LIGHT_USER}; border-color:#efe39a; margin-left:auto; }}
+.badge-assistant {{ display:inline-block; background: var(--brand-primary); color:#fff; border-radius:999px; padding:6px 10px; font-weight:700; }}
+.meta {{ font-size:11px; color:#667; margin-top:4px; }}
+.typing {{ font-style:italic; opacity:.9; }}
+#scroll {{ height:560px; overflow:auto; overflow-x:hidden; padding-right:6px; }}
+
+/* Rimuovi riquadri/box vuoti sopra (se qualche widget nascosto avesse margini) */
+[data-testid="stVerticalBlock"] > div:empty {{ display:none; }}
+header[data-testid="stHeader"] {{ background: transparent; }}
 </style>
-""", unsafe_allow_html=True)
+"""
 
+st.markdown(CSS, unsafe_allow_html=True)
+
+# utility wrapper per bottoni con classi extra
 from contextlib import contextmanager
 @contextmanager
 def btn_class(cls: str):
@@ -110,6 +143,7 @@ def btn_class(cls: str):
     finally:
         st.markdown('</div>', unsafe_allow_html=True)
 
+# ---- CHAT RENDER ----
 AUTO_SCROLL_JS=(
     "<script>"
     "try{const sc=document.getElementById('scroll');"
@@ -138,42 +172,51 @@ def render_chat_html(history, show_typing=False):
     parts.append('</div></div></div>'); parts.append(AUTO_SCROLL_JS)
     return "".join(parts)
 def render_chat(ph, history, show_typing=False):
-    ph.empty(); 
-    with ph: components.html(render_chat_html(history, show_typing), height=600, scrolling=False)
+    ph.empty()
+    with ph:
+        components.html(render_chat_html(history, show_typing), height=600, scrolling=False)
 
-left, right = st.columns([1.1, 3.2], gap="large")
+# ---- LAYOUT ROOT WRAPPER ----
+st.markdown('<div class="wrapper">', unsafe_allow_html=True)
 
-with left:
+# LEFT: logo + menu verticale (più largo, spacing maggiore)
+with st.container():
     st.markdown('<div class="left-col">', unsafe_allow_html=True)
     st.markdown('<div class="menu-card">', unsafe_allow_html=True)
-    try: st.image("images/Nuovo_Logo.png", width=180)
-    except Exception: st.markdown(f'<div class="logo-title">easy<span class="logo-sub">look</span><span class="logo-dot">.doc</span></div>', unsafe_allow_html=True)
+    try:
+        st.image("images/Nuovo_Logo.png", width=200)
+    except Exception:
+        st.markdown(f'<div class="logo-title">easy<span class="logo-sub">look</span><span class="logo-dot">.doc</span></div>', unsafe_allow_html=True)
     st.markdown('<div class="nav-title">Menu</div>', unsafe_allow_html=True)
     st.markdown('<div class="nav-radio">', unsafe_allow_html=True)
     ss["nav"]=st.radio("Navigazione",["Documenti","Estrazione","Chat","Cronologia","Impostazioni"],
                        index=["Documenti","Estrazione","Chat","Cronologia","Impostazioni"].index(ss["nav"]),
-                       label_visibility="collapsed", key="nav_vert_v3")
+                       label_visibility="collapsed", key="nav_v4")
     st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)  # /menu-card
+    st.markdown('</div>', unsafe_allow_html=True)  # /left-col
 
-with right:
-    # Documento panel: sempre visibile in Chat (oltre che in Documenti/Estrazione)
-    if ss["nav"] in ("Documenti","Estrazione","Chat"):
+# RIGHT: pannelli bianchi. Documento è sempre visibile anche quando si è in Chat
+with st.container():
+    # DOCUMENTO PANEL
+    show_doc_panel = (ss["nav"] in ("Documenti","Estrazione","Chat"))
+    if show_doc_panel:
         st.markdown('<div class="panel">', unsafe_allow_html=True)
         st.markdown('<div class="section-title">Documento</div>', unsafe_allow_html=True)
         if not HAVE_FORMRECOGNIZER:
             st.warning("Installa azure-ai-formrecognizer>=3.3.0")
         else:
             ss["file_name"]=st.text_input("Nome file nel container (es. 'contratto1.pdf')", ss.get("file_name",""))
-            colA, colB = st.columns([1,1])
-            with colA, btn_class("btn-accent"):
+            c1,c2 = st.columns([1,1])
+            with c1, btn_class("btn-accent"):   # giallo
                 read_clicked = st.button("🔎 Leggi documento", use_container_width=True)
-            with colB, btn_class("btn-outline"):
+            with c2, btn_class("btn-outline"):
                 if st.button("🗂️ Cambia/Reset documento", use_container_width=True):
                     ss["document_text"]=""; ss["chat_history"]=[]; ss["doc_ready"]=False; ss["file_name"]=""; st.rerun()
             if read_clicked:
-                AZURE_DOCINT_ENDPOINT=os.getenv("AZURE_DOCINT_ENDPOINT"); AZURE_DOCINT_KEY=os.getenv("AZURE_DOCINT_KEY"); AZURE_BLOB_CONTAINER_SAS_URL=os.getenv("AZURE_BLOB_CONTAINER_SAS_URL")
+                AZURE_DOCINT_ENDPOINT=os.getenv("AZURE_DOCINT_ENDPOINT")
+                AZURE_DOCINT_KEY=os.getenv("AZURE_DOCINT_KEY")
+                AZURE_BLOB_CONTAINER_SAS_URL=os.getenv("AZURE_BLOB_CONTAINER_SAS_URL")
                 file_name=ss.get("file_name")
                 if not (AZURE_DOCINT_ENDPOINT and (AZURE_DOCINT_KEY or os.getenv("AZURE_TENANT_ID")) and AZURE_BLOB_CONTAINER_SAS_URL and file_name):
                     st.error("Completa le variabili e inserisci il nome file.")
@@ -185,14 +228,15 @@ with right:
                         else:
                             TENANT_ID=os.getenv("AZURE_TENANT_ID"); CLIENT_ID=os.getenv("AZURE_CLIENT_ID"); CLIENT_SECRET=os.getenv("AZURE_CLIENT_SECRET")
                             di_client=DocumentAnalysisClient(endpoint=AZURE_DOCINT_ENDPOINT, credential=ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET))
-                        poller=di_client.begin_analyze_document_from_url(model_id="prebuilt-read", document_url=blob_url); result=poller.result()
+                        poller=di_client.begin_analyze_document_from_url(model_id="prebuilt-read", document_url=blob_url)
+                        result=poller.result()
                         full_text=""
                         if hasattr(result,"content") and result.content: full_text=result.content.strip()
                         if not full_text and hasattr(result,"pages"):
-                            parts=[]; 
+                            pieces=[]; 
                             for p in result.pages:
-                                if hasattr(p,"content") and p.content: parts.append(p.content)
-                            full_text="\\n\\n".join(parts).strip()
+                                if hasattr(p,"content") and p.content: pieces.append(p.content)
+                            full_text="\\n\\n".join(pieces).strip()
                         if not full_text and hasattr(result,"pages"):
                             lines=[]; 
                             for p in result.pages:
@@ -206,19 +250,21 @@ with right:
                             st.warning("Nessun testo estratto. Verifica file o SAS."); ss["doc_ready"]=False
                     except Exception as e:
                         st.error(f"Errore durante l'analisi del documento: {e}"); ss["doc_ready"]=False
-        st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown('<div style="height:12px;"></div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)  # /panel Documento
 
+    # CHAT PANEL (solo in nav=Chat)
     if ss["nav"] == "Chat":
+        st.markdown('<div style="height:12px;"></div>', unsafe_allow_html=True)
         st.markdown('<div class="panel">', unsafe_allow_html=True)
         st.markdown('<div class="section-title">Chat</div>', unsafe_allow_html=True)
         if ss.get("doc_ready", False):
             chat_ph=st.empty(); render_chat(chat_ph, ss["chat_history"], show_typing=False)
             user_prompt=st.chat_input("Scrivi un messaggio…")
             if user_prompt:
-                ts=now_iso(); ss["chat_history"].append({"role":"user","content":clean_md(user_prompt),"ts":ts}); render_chat(chat_ph, ss["chat_history"], show_typing=True)
+                ts=now_iso(); ss["chat_history"].append({"role":"user","content":clean_md(user_prompt),"ts":ts})
+                render_chat(chat_ph, ss["chat_history"], show_typing=True)
                 client, DEPLOYMENT = get_aoai_client()
-                CONTEXT_LIMIT=12000; SYS="Sei un assistente che risponde SOLO sulla base del documento fornito."; TRUNC="(---Documento troncato - mostra l'ultima parte---)\n"
+                CONTEXT_LIMIT=12000; SYS="Sei un assistente che risponde SOLO sulla base del documento fornito."; TRUNC="(---Documento troncato - mostra l'ultima parte---)\\n"
                 def build_msgs(doc_text: str, hist: list):
                     msgs=[{"role":"system","content":SYS}]
                     doc=ss.get("document_text","")
@@ -239,20 +285,20 @@ with right:
                                 delta=getattr(choices[0],"delta",None)
                                 if delta and getattr(delta,"content",None):
                                     piece=delta.content; partial+=piece
-                                    temp=ss["chat_history"]+[{"role":"assistant","content":partial,"ts":ts2}]; render_chat(chat_ph, temp, show_typing=False)
+                                    temp=ss["chat_history"]+[{"role":"assistant","content":partial,"ts":ts2}]
+                                    render_chat(chat_ph, temp, show_typing=False)
                         except Exception: pass
-                    final=clean_md(partial); ss["chat_history"].append({"role":"assistant","content":final,"ts":ts2}); render_chat(chat_ph, ss["chat_history"], show_typing=False)
+                    final=clean_md(partial); ss["chat_history"].append({"role":"assistant","content":final,"ts":ts2})
+                    render_chat(chat_ph, ss["chat_history"], show_typing=False)
                 except Exception as api_err:
-                    render_chat(chat_ph, ss["chat_history"], show_typing=False); st.error(f"❌ Errore API: {api_err}")
+                    render_chat(chat_ph, ss["chat_history"], show_typing=False)
+                    st.error(f"❌ Errore API: {api_err}")
             c1,c2=st.columns([1,1])
             with c1, btn_class("btn-outline"):
                 if st.button("Reset chat", use_container_width=True): ss["chat_history"]=[]; st.rerun()
             with c2: st.caption("Sessione locale al browser")
         else:
             st.info("➡️ Leggi prima un documento nella sezione sopra.")
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)  # /panel Chat
 
-    if ss["nav"] == "Cronologia":
-        st.markdown('<div class="panel"><div class="section-title">Cronologia</div><p>Prossimamente.</p></div>', unsafe_allow_html=True)
-    if ss["nav"] == "Impostazioni":
-        st.markdown('<div class="panel"><div class="section-title">Impostazioni</div><p>Prossimamente.</p></div>', unsafe_allow_html=True)
+st.markdown('</div>', unsafe_allow_html=True)  # /wrapper
