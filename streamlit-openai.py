@@ -1,4 +1,4 @@
-# streamlit-openai.py (patched v9.1: fix quotes for truncation banner + fixed-height chat)
+# streamlit-openai.py (patched v9.2: full-width iframe + smart autoscroll)
 import os
 import re
 import html
@@ -54,11 +54,14 @@ def local_iso_now() -> str:
 # -----------------------
 st.set_page_config(page_title="EasyLook.DOC Chat", page_icon="📝", layout="wide")
 
-# Full-width container override
+# Full-width container + iframe override
 st.markdown("""
 <style>
+/* main container a tutta larghezza */
 .block-container {max-width: 100% !important; padding-left: 1rem; padding-right: 1rem;}
 main .block-container, [data-testid="block-container"] {max-width: 100% !important;}
+/* forza i component iframe al 100% della riga */
+.stElement iframe, iframe[title="streamlit.components.v1.html"] { width: 100% !important; }
 </style>
 """, unsafe_allow_html=True)
 
@@ -205,10 +208,17 @@ CHAT_CSS = (
 AUTO_SCROLL_JS = (
     "<script>"
     "try{"
-    "const go=()=>{const sc=document.getElementById('scroll');if(sc){sc.scrollTop=sc.scrollHeight;}};"
-    "go();"
-    "const obs=new MutationObserver(()=>go());"
-    "obs.observe(document.body,{childList:true,subtree:true,characterData:true});"
+    "const sc = document.getElementById('scroll');"
+    "const needOverflow = ()=> sc && (sc.scrollHeight - sc.clientHeight) > 20;"
+    "const atBottom = ()=> sc && (sc.scrollTop >= (sc.scrollHeight - sc.clientHeight - 120));"
+    "// iniziale: scrolla in basso solo se c'è overflow"
+    "if (needOverflow()) { sc.scrollTop = sc.scrollHeight; }"
+    "// osserva cambi e autoscroll SOLO se c'è overflow e l'utente è vicino al fondo"
+    "const obs = new MutationObserver(()=>{"
+    "  if (!sc) return;"
+    "  if (needOverflow() && atBottom()) { sc.scrollTop = sc.scrollHeight; }"
+    "});"
+    "obs.observe(sc || document.body, {childList:true,subtree:true,characterData:true});"
     "}catch(e){}"
     "</script>"
 )
@@ -251,7 +261,7 @@ def render_chat(placeholder, history, show_typing=False, height=CHAT_HEIGHT_PX):
 # STEP 2: chat (visibile SOLO quando doc_ready=True)
 # -----------------------
 if st.session_state.get("doc_ready", False):
-    st.subheader("💬 Step 2 · Fai la tua ricerca (altezza fissa con scorrimento)")
+    st.subheader("💬 Step 2 · Fai la tua ricerca (full-width + autoscroll smart)")
 
     chat_placeholder = st.empty()
     render_chat(chat_placeholder, st.session_state["chat_history"], show_typing=False)
@@ -275,7 +285,7 @@ if st.session_state.get("doc_ready", False):
         # Prepara messaggi
         CONTEXT_CHAR_LIMIT = 12000
         ASSISTANT_SYSTEM_INSTRUCTION = "Sei un assistente che risponde SOLO sulla base del documento fornito."
-        TRUNCATION_BANNER = "(---Documento troncato - mostra l'ultima parte---)\n"
+        TRUNCATION_BANNER = "(---Documento troncato - mostra l'ultima parte---)\\n"
 
         def build_messages_for_api(document_text: str, history: list):
             messages = [{"role": "system", "content": ASSISTANT_SYSTEM_INSTRUCTION}]
@@ -283,9 +293,8 @@ if st.session_state.get("doc_ready", False):
             if document_text:
                 doc_content = document_text
                 if len(doc_content) > CONTEXT_CHAR_LIMIT:
-                    # Usa banner con escape esplicito di newline
                     doc_content = TRUNCATION_BANNER + doc_content[-CONTEXT_CHAR_LIMIT:]
-                messages.append({"role": "system", "content": f"Contenuto documento:\n{doc_content}"})
+                messages.append({"role": "system", "content": f"Contenuto documento:\\n{doc_content}"})
             # include history (pulita)
             for m in history:
                 messages.append({"role": m["role"], "content": clean_markdown_fences(m["content"]) })
