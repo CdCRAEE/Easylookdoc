@@ -1,7 +1,7 @@
-# streamlit-openai-III-Prototipo.py
-# - Chat input nativo (st.chat_input) in alto
-# - Auto-scroll
-# - Bubbles stile WhatsApp (utente giallo, AI bianco)
+# streamlit-openai-II-Prototipo_leftmenu_chatbubbles_v4.py
+# - Chat area (scrollable) SOPRA, input chat SOTTO
+# - Auto-scroll solo del riquadro chat, la pagina non si allunga
+# - Bubbles WhatsApp (utente giallo, AI bianco)
 # - Layout: menu sinistra, contenuti destra
 
 import os, html
@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from openai import AzureOpenAI
 from azure.identity import ClientSecretCredential
 
-# Document Intelligence (opzionale)
+# Document Intelligence (opzionale, invariato)
 try:
     from azure.ai.formrecognizer import DocumentAnalysisClient
     from azure.core.credentials import AzureKeyCredential
@@ -86,6 +86,7 @@ CSS = '''
 .avatar.ai { background:#d9e8ff; color:#123; }
 .avatar.user { background:#fff0a6; color:#5a4a00; }
 .small { font-size:12px; color:#5b6b7e; margin:6px 0 2px; }
+.chat-footer { padding:10px 0 0; }
 </style>
 '''
 st.markdown(CSS, unsafe_allow_html=True)
@@ -160,28 +161,7 @@ with right:
         if not ss.get('document_text'):
             st.info("Prima estrai un documento dal Blob (vai in 'Estrazione documento').")
         else:
-            # --- Chat input nativo (in alto) ---
-            prompt = st.chat_input('Scrivi la tua domanda sul documento:')
-            if prompt:
-                ss['chat_history'].append({'role': 'user', 'content': prompt, 'ts': now_local_iso()})
-                try:
-                    doc_text = ss['document_text']
-                    response = client.chat.completions.create(
-                        model=DEPLOYMENT_NAME,
-                        messages=[
-                            {'role': 'system', 'content': 'Sei un assistente che risponde SOLO sulla base del documento fornito.'},
-                            {'role': 'system', 'content': f'Contenuto documento:\n{doc_text[:12000]}' },
-                            {'role': 'user',   'content': prompt}
-                        ],
-                        temperature=0.3,
-                        max_tokens=700
-                    )
-                    answer = response.choices[0].message.content.strip()
-                    ss['chat_history'].append({'role': 'assistant', 'content': answer, 'ts': now_local_iso()})
-                except Exception as api_err:
-                    ss['chat_history'].append({'role': 'assistant', 'content': f'Errore API: {api_err}', 'ts': now_local_iso()})
-
-            # --- Scheda chat ---
+            # --- Scheda chat: prima i messaggi (in alto) ---
             st.markdown('<div class="chat-card">', unsafe_allow_html=True)
             st.markdown('<div class="chat-header">Conversazione</div>', unsafe_allow_html=True)
 
@@ -213,10 +193,35 @@ with right:
                                 </div>""", unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
-                # Auto-scroll in fondo
+                # Auto-scroll entro il riquadro chat
                 import streamlit.components.v1 as components
                 components.html("""                    <script>
                     const el = window.parent.document.getElementById('chat-body');
                     if (el) { el.scrollTop = el.scrollHeight; }
                     </script>
                 """, height=0)
+
+            # --- Input in basso (fuori dal riquadro scrollabile) ---
+            st.markdown('<div class="chat-footer">', unsafe_allow_html=True)
+            prompt = st.chat_input('Scrivi la tua domanda sul documento:')
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            if prompt:
+                ss['chat_history'].append({'role': 'user', 'content': prompt, 'ts': now_local_iso()})
+                try:
+                    doc_text = ss['document_text']
+                    response = client.chat.completions.create(
+                        model=DEPLOYMENT_NAME,
+                        messages=[
+                            {'role': 'system', 'content': 'Sei un assistente che risponde SOLO sulla base del documento fornito.'},
+                            {'role': 'system', 'content': f'Contenuto documento:\n{doc_text[:12000]}' },
+                            {'role': 'user',   'content': prompt}
+                        ],
+                        temperature=0.3,
+                        max_tokens=700
+                    )
+                    answer = response.choices[0].message.content.strip()
+                    ss['chat_history'].append({'role': 'assistant', 'content': answer, 'ts': now_local_iso()})
+                except Exception as api_err:
+                    ss['chat_history'].append({'role': 'assistant', 'content': f'Errore API: {api_err}', 'ts': now_local_iso()})
+                st.rerun()
