@@ -26,35 +26,6 @@ except Exception:
 # -----------------------
 st.set_page_config(page_title="EasyLook.DOC Chat", page_icon="📝", layout="wide")
 
-st.markdown("""
-    <style>
-    .chat-bubble {
-        max-width: 80%;
-        padding: 10px 15px;
-        margin: 10px;
-        border-radius: 15px;
-        font-size: 16px;
-        line-height: 1.4;
-        display: inline-block;
-    }
-    .user-bubble {
-        background-color: #dcf8c6;
-        align-self: flex-end;
-        margin-left: auto;
-    }
-    .ai-bubble {
-        background-color: #ffffff;
-        border: 1px solid #ccc;
-        align-self: flex-start;
-        margin-right: auto;
-    }
-    .chat-container {
-        display: flex;
-        flex-direction: column;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
 # -----------------------
 # CONFIGURAZIONE (invariata)
 # -----------------------
@@ -206,12 +177,7 @@ with right:
                         temperature=0.3,
                         max_tokens=600
                     )
-                   st.markdown(f"""
-    <div class="chat-container">
-        <div class="chat-bubble user-bubble">{user_prompt}</div>
-        <div class="chat-bubble ai-bubble">{response.choices[0].message.content}</div>
-    </div>
-""", unsafe_allow_html=True)
-
+                    st.write("💬 **Risposta AI:**")
+                    st.write(response.choices[0].message.content)
                 except Exception as api_err:
                     st.error(f"❌ Errore nella chiamata API: {api_err}")
