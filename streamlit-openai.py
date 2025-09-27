@@ -123,22 +123,22 @@ with left:
     except Exception:
         st.markdown("### EasyLook.DOC")
     st.markdown("---")
-    nav = st.radio("Navigazione", ["Scegli il documento", "Chat"], index=0)
+    nav = st.radio("Navigazione", ["Estrazione documento", "Chat"], index=0)
 
 with right:
     st.title("EasyLook.DOC")
 
     if nav == "Estrazione documento":
-        st.subheader("📄 Scegli il documento")
+        st.subheader("📄 Step 1 · Estrai testo da Blob")
         if not HAVE_FORMRECOGNIZER:
             st.warning("Installa azure-ai-formrecognizer>=3.3.0")
         else:
-            file_name = st.text_input("Nome file nel container (es. 'Elenco - R1.pdf')", key="file_name_input")
+            file_name = st.text_input("Nome file nel container (es. 'contratto1.pdf')", key="file_name_input")
             col1, col2 = st.columns([1, 1])
             with col1:
-                extract = st.button("🔎 Leggi il documento", use_container_width=True)
+                extract = st.button("🔎 Estrai testo", use_container_width=True)
             with col2:
-                if st.button("🗂️ Cancella il documento", use_container_width=True):
+                if st.button("🗂️ Reset documento", use_container_width=True):
                     ss["document_text"] = ""
                     ss["chat_history"] = []
                     st.experimental_rerun()
@@ -170,19 +170,19 @@ with right:
                             full_text = "\n".join(all_lines).strip()
 
                         if full_text:
-                            st.success("✅ Documento letto!")
+                            st.success("✅ Testo estratto correttamente!")
                             st.text_area("Anteprima testo (~4000 caratteri):", full_text[:4000], height=300)
                             ss["document_text"] = full_text
                             ss["chat_history"] = []  # reset chat per il nuovo doc
                         else:
-                            st.warning("Nessun documento letto. Verifica il nome.")
+                            st.warning("Nessun testo estratto. Verifica file o SAS.")
                     except Exception as e:
                         st.error(f"Errore durante l'analisi del documento: {e}")
 
     else:  # Chat
-        st.subheader("💬 Cosa vuoi sapere?")
+        st.subheader("💬 Step 2 · Chat sul documento")
         if not ss.get("document_text"):
-            st.info("Prima estrai un documento dal Blob (vai in 'Documento').")
+            st.info("Prima estrai un documento dal Blob (vai in 'Estrazione documento').")
         else:
             st.markdown('<div class="chat-card">', unsafe_allow_html=True)
             st.markdown('<div class="chat-header">Conversazione</div>', unsafe_allow_html=True)
@@ -219,7 +219,7 @@ with right:
                 st.markdown('</div>', unsafe_allow_html=True)  # /chat-body
 
             # Input riga singola (Enter = invia)
-            user_prompt = st.text_input("✏️ Scrivi la tua domanda:", key="chat_user_prompt_bubbles")
+            user_prompt = st.text_input("✏️ Scrivi la tua domanda sul documento:", key="chat_user_prompt_bubbles")
 
             if user_prompt:
                 # Append utente
