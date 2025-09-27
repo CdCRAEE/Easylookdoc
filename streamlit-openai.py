@@ -1,16 +1,10 @@
-# streamlit-openai-II-Prototipo_leftmenu_chatbubbles.py
-# Layout: menu sinistra + chat a destra con bolle stile WhatsApp (AI bianca, utente gialla).
-# Backend rimane identico: AAD -> Azure OpenAI; Document Intelligence per estrazione testo.
-
+# streamlit-openai-II-Prototipo_leftmenu_chatbubbles_v2.py
 import os, html
 import streamlit as st
 from datetime import datetime, timezone
-
-# OpenAI (Azure)
 from openai import AzureOpenAI
 from azure.identity import ClientSecretCredential
 
-# Document Intelligence
 try:
     from azure.ai.formrecognizer import DocumentAnalysisClient
     from azure.core.credentials import AzureKeyCredential
@@ -20,9 +14,6 @@ except Exception:
 
 st.set_page_config(page_title="EasyLook.DOC Chat", page_icon="💬", layout="wide")
 
-# -----------------------
-# CONFIG (invariata)
-# -----------------------
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
 CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET")
@@ -34,32 +25,14 @@ AZURE_DOCINT_ENDPOINT = os.getenv("AZURE_DOCINT_ENDPOINT")
 AZURE_DOCINT_KEY = os.getenv("AZURE_DOCINT_KEY")
 AZURE_BLOB_CONTAINER_SAS_URL = os.getenv("AZURE_BLOB_CONTAINER_SAS_URL")
 
-# -----------------------
-# TOKEN AAD PER OPENAI
-# -----------------------
 try:
     credential = ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
     token = credential.get_token("https://cognitiveservices.azure.com/.default")
+    client = AzureOpenAI(api_version=API_VERSION, azure_endpoint=AZURE_OPENAI_ENDPOINT, api_key=token.token)
 except Exception as e:
-    st.error(f"Errore ottenimento token AAD per OpenAI: {e}")
+    st.error(f"Errore inizializzazione Azure: {e}")
     st.stop()
 
-# -----------------------
-# CLIENT AZURE OPENAI
-# -----------------------
-try:
-    client = AzureOpenAI(
-        api_version=API_VERSION,
-        azure_endpoint=AZURE_OPENAI_ENDPOINT,
-        api_key=token.token  # Bearer token AAD
-    )
-except Exception as e:
-    st.error(f"Errore inizializzazione AzureOpenAI: {e}")
-    st.stop()
-
-# -----------------------
-# HELPERS
-# -----------------------
 def build_blob_sas_url(container_sas_url: str, blob_name: str) -> str:
     if not container_sas_url or "?" not in container_sas_url:
         return ""
@@ -76,20 +49,15 @@ def human(ts: str) -> str:
     except Exception:
         return ts
 
-# -----------------------
-# STATE
-# -----------------------
 ss = st.session_state
 ss.setdefault("document_text", "")
-ss.setdefault("chat_history", [])  # list of dicts {role, content, ts}
+ss.setdefault("chat_history", [])
+ss.setdefault("chat_user_prompt_bubbles", "")
 
-# -----------------------
-# STYLE (bolle chat)
-# -----------------------
-CSS = """
+CSS = '''
 <style>
 :root {
-  --yellow: #f5e663; /* richiamo al logo */
+  --yellow: #f5e663;
   --yellow-border: #e8d742;
   --ai-bg: #ffffff;
   --ai-border: #e8edf3;
@@ -109,12 +77,9 @@ CSS = """
 .avatar.user { background:#fff0a6; color:#5a4a00; }
 .small { font-size:12px; color:#5b6b7e; margin:6px 0 2px; }
 </style>
-"""
+'''
 st.markdown(CSS, unsafe_allow_html=True)
 
-# -----------------------
-# LAYOUT
-# -----------------------
 left, right = st.columns([0.28, 0.72], gap="large")
 
 with left:
@@ -141,7 +106,7 @@ with right:
                 if st.button("🗂️ Reset documento", use_container_width=True):
                     ss["document_text"] = ""
                     ss["chat_history"] = []
-                    st.experimental_rerun()
+                    st.rerun()
 
             if extract:
                 if not (AZURE_DOCINT_ENDPOINT and (AZURE_DOCINT_KEY or (TENANT_ID and CLIENT_ID and CLIENT_SECRET)) and AZURE_BLOB_CONTAINER_SAS_URL and file_name):
@@ -173,24 +138,45 @@ with right:
                             st.success("✅ Testo estratto correttamente!")
                             st.text_area("Anteprima testo (~4000 caratteri):", full_text[:4000], height=300)
                             ss["document_text"] = full_text
-                            ss["chat_history"] = []  # reset chat per il nuovo doc
+                            ss["chat_history"] = []
                         else:
                             st.warning("Nessun testo estratto. Verifica file o SAS.")
                     except Exception as e:
                         st.error(f"Errore durante l'analisi del documento: {e}")
 
-    else:  # Chat
+    else:
         st.subheader("💬 Step 2 · Chat sul documento")
         if not ss.get("document_text"):
             st.info("Prima estrai un documento dal Blob (vai in 'Estrazione documento').")
         else:
+            prompt = st.text_input("✏️ Scrivi la tua domanda sul documento:", key="chat_user_prompt_bubbles")
+            if prompt:
+                ss["chat_history"].append({"role": "user", "content": prompt, "ts": now_local_iso()})
+                try:
+                    doc_text = ss["document_text"]
+                    response = client.chat.completions.create(
+                        model=DEPLOYMENT_NAME,
+                        messages=[
+                            {"role": "system", "content": "Sei un assistente che risponde SOLO sulla base del documento fornito."},
+                            {"role": "system", "content": f"Contenuto documento:\n{doc_text[:12000]}"},
+                            {"role": "user", "content": prompt}
+                        ],
+                        temperature=0.3,
+                        max_tokens=700
+                    )
+                    answer = response.choices[0].message.content.strip()
+                    ss["chat_history"].append({"role": "assistant", "content": answer, "ts": now_local_iso()})
+                except Exception as api_err:
+                    ss["chat_history"].append({"role": "assistant", "content": f"Errore API: {api_err}", "ts": now_local_iso()})
+                ss["chat_user_prompt_bubbles"] = ""
+                st.rerun()
+
             st.markdown('<div class="chat-card">', unsafe_allow_html=True)
             st.markdown('<div class="chat-header">Conversazione</div>', unsafe_allow_html=True)
 
-            # Corpo chat
             chat_container = st.container()
             with chat_container:
-                st.markdown('<div class="chat-body">', unsafe_allow_html=True)
+                st.markdown('<div class="chat-body" id="chat-body">', unsafe_allow_html=True)
                 if not ss["chat_history"]:
                     st.markdown('<div class="small">Nessun messaggio. Fai una domanda sul documento.</div>', unsafe_allow_html=True)
                 else:
@@ -199,8 +185,7 @@ with right:
                         content = html.escape(m["content"]).replace("\n", "<br>")
                         ts = human(m["ts"])
                         if role == "user":
-                            st.markdown(f"""
-                                <div class="msg-row" style="justify-content:flex-end;">
+                            st.markdown(f"""                                <div class="msg-row" style="justify-content:flex-end;">
                                   <div class="msg user">
                                     {content}
                                     <div class="meta">{ts}</div>
@@ -208,38 +193,18 @@ with right:
                                   <div class="avatar user">U</div>
                                 </div>""", unsafe_allow_html=True)
                         else:
-                            st.markdown(f"""
-                                <div class="msg-row">
+                            st.markdown(f"""                                <div class="msg-row">
                                   <div class="avatar ai">A</div>
                                   <div class="msg ai">
                                     {content}
                                     <div class="meta">{ts}</div>
                                   </div>
                                 </div>""", unsafe_allow_html=True)
-                st.markdown('</div>', unsafe_allow_html=True)  # /chat-body
+                st.markdown('</div>', unsafe_allow_html=True)
 
-            # Input riga singola (Enter = invia)
-            user_prompt = st.text_input("✏️ Scrivi la tua domanda sul documento:", key="chat_user_prompt_bubbles")
-
-            if user_prompt:
-                # Append utente
-                ss["chat_history"].append({"role": "user", "content": user_prompt, "ts": now_local_iso()})
-                try:
-                    # Chiamata modello (singolo turno; se vuoi estendere ai turni, includi history nei messages)
-                    doc_text = ss["document_text"]
-                    response = client.chat.completions.create(
-                        model=DEPLOYMENT_NAME,
-                        messages=[
-                            {"role": "system", "content": "Sei un assistente che risponde SOLO sulla base del documento fornito."},
-                            {"role": "system", "content": f"Contenuto documento:\n{doc_text[:12000]}"},
-                            {"role": "user", "content": user_prompt}
-                        ],
-                        temperature=0.3,
-                        max_tokens=700
-                    )
-                    answer = response.choices[0].message.content.strip()
-                    ss["chat_history"].append({"role": "assistant", "content": answer, "ts": now_local_iso()})
-                    st.experimental_rerun()
-                except Exception as api_err:
-                    ss["chat_history"].append({"role": "assistant", "content": f"Errore API: {api_err}", "ts": now_local_iso()})
-                    st.experimental_rerun()
+                import streamlit.components.v1 as components
+                components.html("""                    <script>
+                    const el = window.parent.document.getElementById('chat-body');
+                    if (el) { el.scrollTop = el.scrollHeight; }
+                    </script>
+                """, height=0)
