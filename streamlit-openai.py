@@ -1,10 +1,16 @@
-# streamlit-openai-II-Prototipo_leftmenu_chatbubbles_v2.py
+# streamlit-openai-III-Prototipo.py
+# - Chat input nativo (st.chat_input) in alto
+# - Auto-scroll
+# - Bubbles stile WhatsApp (utente giallo, AI bianco)
+# - Layout: menu sinistra, contenuti destra
+
 import os, html
 import streamlit as st
 from datetime import datetime, timezone
 from openai import AzureOpenAI
 from azure.identity import ClientSecretCredential
 
+# Document Intelligence (opzionale)
 try:
     from azure.ai.formrecognizer import DocumentAnalysisClient
     from azure.core.credentials import AzureKeyCredential
@@ -12,48 +18,52 @@ try:
 except Exception:
     HAVE_FORMRECOGNIZER = False
 
-st.set_page_config(page_title="EasyLook.DOC Chat", page_icon="💬", layout="wide")
+st.set_page_config(page_title='EasyLook.DOC Chat', page_icon='💬', layout='wide')
 
-TENANT_ID = os.getenv("AZURE_TENANT_ID")
-CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
-CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET")
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-DEPLOYMENT_NAME = os.getenv("AZURE_OPENAI_DEPLOYMENT")
-API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-05-01-preview")
+# --------- CONFIG ---------
+TENANT_ID = os.getenv('AZURE_TENANT_ID')
+CLIENT_ID = os.getenv('AZURE_CLIENT_ID')
+CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET')
+AZURE_OPENAI_ENDPOINT = os.getenv('AZURE_OPENAI_ENDPOINT')
+DEPLOYMENT_NAME = os.getenv('AZURE_OPENAI_DEPLOYMENT')
+API_VERSION = os.getenv('AZURE_OPENAI_API_VERSION', '2024-05-01-preview')
 
-AZURE_DOCINT_ENDPOINT = os.getenv("AZURE_DOCINT_ENDPOINT")
-AZURE_DOCINT_KEY = os.getenv("AZURE_DOCINT_KEY")
-AZURE_BLOB_CONTAINER_SAS_URL = os.getenv("AZURE_BLOB_CONTAINER_SAS_URL")
+AZURE_DOCINT_ENDPOINT = os.getenv('AZURE_DOCINT_ENDPOINT')
+AZURE_DOCINT_KEY = os.getenv('AZURE_DOCINT_KEY')
+AZURE_BLOB_CONTAINER_SAS_URL = os.getenv('AZURE_BLOB_CONTAINER_SAS_URL')
 
+# --------- TOKEN + CLIENT ---------
 try:
     credential = ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
-    token = credential.get_token("https://cognitiveservices.azure.com/.default")
+    token = credential.get_token('https://cognitiveservices.azure.com/.default')
     client = AzureOpenAI(api_version=API_VERSION, azure_endpoint=AZURE_OPENAI_ENDPOINT, api_key=token.token)
 except Exception as e:
-    st.error(f"Errore inizializzazione Azure: {e}")
+    st.error(f'Errore inizializzazione Azure: {e}')
     st.stop()
 
+# --------- HELPERS ---------
 def build_blob_sas_url(container_sas_url: str, blob_name: str) -> str:
-    if not container_sas_url or "?" not in container_sas_url:
-        return ""
-    base, qs = container_sas_url.split("?", 1)
-    base = base.rstrip("/")
-    return f"{base}/{blob_name}?{qs}"
+    if not container_sas_url or '?' not in container_sas_url:
+        return ''
+    base, qs = container_sas_url.split('?', 1)
+    base = base.rstrip('/')
+    return f'{base}/{blob_name}?{qs}'
 
 def now_local_iso() -> str:
-    return datetime.now(timezone.utc).astimezone().isoformat(timespec="seconds")
+    return datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')
 
 def human(ts: str) -> str:
     try:
-        return datetime.fromisoformat(ts).strftime("%d/%m %H:%M")
+        return datetime.fromisoformat(ts).strftime('%d/%m %H:%M')
     except Exception:
         return ts
 
+# --------- STATE ---------
 ss = st.session_state
-ss.setdefault("document_text", "")
-ss.setdefault("chat_history", [])
-ss.setdefault("chat_user_prompt_bubbles", "")
+ss.setdefault('document_text', '')
+ss.setdefault('chat_history', [])  # [{'role','content','ts'}]
 
+# --------- STYLE ---------
 CSS = '''
 <style>
 :root {
@@ -80,37 +90,38 @@ CSS = '''
 '''
 st.markdown(CSS, unsafe_allow_html=True)
 
-left, right = st.columns([0.28, 0.72], gap="large")
+# --------- LAYOUT ---------
+left, right = st.columns([0.28, 0.72], gap='large')
 
 with left:
     try:
-        st.image("images/Nuovo_Logo.png", width=200)
+        st.image('images/Nuovo_Logo.png', width=200)
     except Exception:
-        st.markdown("### EasyLook.DOC")
-    st.markdown("---")
-    nav = st.radio("Navigazione", ["Estrazione documento", "Chat"], index=0)
+        st.markdown('### EasyLook.DOC')
+    st.markdown('---')
+    nav = st.radio('Navigazione', ['Estrazione documento', 'Chat'], index=0)
 
 with right:
-    st.title("EasyLook.DOC")
+    st.title('EasyLook.DOC')
 
-    if nav == "Estrazione documento":
-        st.subheader("📄 Step 1 · Estrai testo da Blob")
+    if nav == 'Estrazione documento':
+        st.subheader('📄 Step 1 · Estrai testo da Blob')
         if not HAVE_FORMRECOGNIZER:
-            st.warning("Installa azure-ai-formrecognizer>=3.3.0")
+            st.warning('Installa azure-ai-formrecognizer>=3.3.0')
         else:
-            file_name = st.text_input("Nome file nel container (es. 'contratto1.pdf')", key="file_name_input")
+            file_name = st.text_input("Nome file nel container (es. 'contratto1.pdf')", key='file_name_input')
             col1, col2 = st.columns([1, 1])
             with col1:
-                extract = st.button("🔎 Estrai testo", use_container_width=True)
+                extract = st.button('🔎 Estrai testo', use_container_width=True)
             with col2:
-                if st.button("🗂️ Reset documento", use_container_width=True):
-                    ss["document_text"] = ""
-                    ss["chat_history"] = []
+                if st.button('🗂️ Reset documento', use_container_width=True):
+                    ss['document_text'] = ''
+                    ss['chat_history'] = []
                     st.rerun()
 
             if extract:
                 if not (AZURE_DOCINT_ENDPOINT and (AZURE_DOCINT_KEY or (TENANT_ID and CLIENT_ID and CLIENT_SECRET)) and AZURE_BLOB_CONTAINER_SAS_URL and file_name):
-                    st.error("Completa le variabili e inserisci il nome file.")
+                    st.error('Completa le variabili e inserisci il nome file.')
                 else:
                     try:
                         blob_url = build_blob_sas_url(AZURE_BLOB_CONTAINER_SAS_URL, file_name)
@@ -118,90 +129,91 @@ with right:
                             di_client = DocumentAnalysisClient(endpoint=AZURE_DOCINT_ENDPOINT, credential=AzureKeyCredential(AZURE_DOCINT_KEY))
                         else:
                             di_client = DocumentAnalysisClient(endpoint=AZURE_DOCINT_ENDPOINT, credential=ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET))
-                        poller = di_client.begin_analyze_document_from_url(model_id="prebuilt-read", document_url=blob_url)
+                        poller = di_client.begin_analyze_document_from_url(model_id='prebuilt-read', document_url=blob_url)
                         result = poller.result()
 
                         pages_text = []
-                        for page in getattr(result, "pages", []) or []:
-                            if hasattr(page, "content") and page.content:
+                        for page in getattr(result, 'pages', []) or []:
+                            if hasattr(page, 'content') and page.content:
                                 pages_text.append(page.content)
-                        full_text = "\n\n".join(pages_text).strip()
+                        full_text = '\n\n'.join(pages_text).strip()
 
                         if not full_text:
                             all_lines = []
-                            for page in getattr(result, "pages", []) or []:
-                                for line in getattr(page, "lines", []) or []:
+                            for page in getattr(result, 'pages', []) or []:
+                                for line in getattr(page, 'lines', []) or []:
                                     all_lines.append(line.content)
-                            full_text = "\n".join(all_lines).strip()
+                            full_text = '\n'.join(all_lines).strip()
 
                         if full_text:
-                            st.success("✅ Testo estratto correttamente!")
-                            st.text_area("Anteprima testo (~4000 caratteri):", full_text[:4000], height=300)
-                            ss["document_text"] = full_text
-                            ss["chat_history"] = []
+                            st.success('✅ Testo estratto correttamente!')
+                            st.text_area('Anteprima testo (~4000 caratteri):', full_text[:4000], height=300)
+                            ss['document_text'] = full_text
+                            ss['chat_history'] = []  # reset chat per il nuovo doc
                         else:
-                            st.warning("Nessun testo estratto. Verifica file o SAS.")
+                            st.warning('Nessun testo estratto. Verifica file o SAS.')
                     except Exception as e:
                         st.error(f"Errore durante l'analisi del documento: {e}")
 
     else:
-        st.subheader("💬 Step 2 · Chat sul documento")
-        if not ss.get("document_text"):
+        st.subheader('💬 Step 2 · Chat sul documento')
+        if not ss.get('document_text'):
             st.info("Prima estrai un documento dal Blob (vai in 'Estrazione documento').")
         else:
-            prompt = st.text_input("✏️ Scrivi la tua domanda sul documento:", key="chat_user_prompt_bubbles")
+            # --- Chat input nativo (in alto) ---
+            prompt = st.chat_input('Scrivi la tua domanda sul documento:')
             if prompt:
-                ss["chat_history"].append({"role": "user", "content": prompt, "ts": now_local_iso()})
+                ss['chat_history'].append({'role': 'user', 'content': prompt, 'ts': now_local_iso()})
                 try:
-                    doc_text = ss["document_text"]
+                    doc_text = ss['document_text']
                     response = client.chat.completions.create(
                         model=DEPLOYMENT_NAME,
                         messages=[
-                            {"role": "system", "content": "Sei un assistente che risponde SOLO sulla base del documento fornito."},
-                            {"role": "system", "content": f"Contenuto documento:\n{doc_text[:12000]}"},
-                            {"role": "user", "content": prompt}
+                            {'role': 'system', 'content': 'Sei un assistente che risponde SOLO sulla base del documento fornito.'},
+                            {'role': 'system', 'content': f'Contenuto documento:\n{doc_text[:12000]}' },
+                            {'role': 'user',   'content': prompt}
                         ],
                         temperature=0.3,
                         max_tokens=700
                     )
                     answer = response.choices[0].message.content.strip()
-                    ss["chat_history"].append({"role": "assistant", "content": answer, "ts": now_local_iso()})
+                    ss['chat_history'].append({'role': 'assistant', 'content': answer, 'ts': now_local_iso()})
                 except Exception as api_err:
-                    ss["chat_history"].append({"role": "assistant", "content": f"Errore API: {api_err}", "ts": now_local_iso()})
-                ss["chat_user_prompt_bubbles"] = ""
-                st.rerun()
+                    ss['chat_history'].append({'role': 'assistant', 'content': f'Errore API: {api_err}', 'ts': now_local_iso()})
 
+            # --- Scheda chat ---
             st.markdown('<div class="chat-card">', unsafe_allow_html=True)
             st.markdown('<div class="chat-header">Conversazione</div>', unsafe_allow_html=True)
 
             chat_container = st.container()
             with chat_container:
                 st.markdown('<div class="chat-body" id="chat-body">', unsafe_allow_html=True)
-                if not ss["chat_history"]:
+                if not ss['chat_history']:
                     st.markdown('<div class="small">Nessun messaggio. Fai una domanda sul documento.</div>', unsafe_allow_html=True)
                 else:
-                    for m in ss["chat_history"]:
-                        role = m["role"]
-                        content = html.escape(m["content"]).replace("\n", "<br>")
-                        ts = human(m["ts"])
-                        if role == "user":
-                            st.markdown(f"""                                <div class="msg-row" style="justify-content:flex-end;">
-                                  <div class="msg user">
+                    for m in ss['chat_history']:
+                        role = m['role']
+                        content = html.escape(m['content']).replace('\n', '<br>')
+                        ts = human(m['ts'])
+                        if role == 'user':
+                            st.markdown(f"""                                <div class='msg-row' style='justify-content:flex-end;'>
+                                  <div class='msg user'>
                                     {content}
-                                    <div class="meta">{ts}</div>
+                                    <div class='meta'>{ts}</div>
                                   </div>
-                                  <div class="avatar user">U</div>
+                                  <div class='avatar user'>U</div>
                                 </div>""", unsafe_allow_html=True)
                         else:
-                            st.markdown(f"""                                <div class="msg-row">
-                                  <div class="avatar ai">A</div>
-                                  <div class="msg ai">
+                            st.markdown(f"""                                <div class='msg-row'>
+                                  <div class='avatar ai'>A</div>
+                                  <div class='msg ai'>
                                     {content}
-                                    <div class="meta">{ts}</div>
+                                    <div class='meta'>{ts}</div>
                                   </div>
                                 </div>""", unsafe_allow_html=True)
                 st.markdown('</div>', unsafe_allow_html=True)
 
+                # Auto-scroll in fondo
                 import streamlit.components.v1 as components
                 components.html("""                    <script>
                     const el = window.parent.document.getElementById('chat-body');
