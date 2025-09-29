@@ -174,21 +174,20 @@ with left:
         unsafe_allow_html=True
     )
 
-    # blocco loghi in basso
-    colA, colB = st.columns(2)
-    with colA:
-        st.image('images/logoRAEE.png', width=80)
-    except Exception:
-        st.markdown('')
-    st.markdown('---')
+ # blocco loghi in basso
+colA, colB = st.columns(2)
 
-    with colB:
+with colA:
+    try:
+        st.image('images/Nuovo_Logo.png', width=80)
+    except Exception:
+        st.markdown('')  # logo non trovato
+
+with colB:
+    try:
         st.image('images/logoNPA.png', width=80)
     except Exception:
-        st.markdown('')
-    st.markdown('---')
-
-    st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('')  # logo non trovato
 
 
 with right:
