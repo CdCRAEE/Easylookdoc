@@ -12,7 +12,7 @@ try:
 except Exception:
     HAVE_FORMRECOGNIZER = False
 
-st.set_page_config(page_title='', page_icon='💬', layout='wide')
+st.set_page_config(page_title='EasyLook.DOC Chat', page_icon='💬', layout='wide')
 
 # --------- CONFIG ---------
 TENANT_ID = os.getenv('AZURE_TENANT_ID')
@@ -104,7 +104,7 @@ CSS = '''
 .msg.user { background: var(--yellow); border-color: var(--yellow-border); color:#2b2b2b; margin-left:auto; }
 .avatar { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px; }
 .avatar.ai { background:#d9e8ff; color:#123; }
-.avatar.user { background:#fff0a6; color:#5a4a00; }
+avatar.user { background:#fff0a6; color:#5a4a00; }
 .small { font-size:12px; color:#5b6b7e; margin:6px 0 2px; }
 .chat-footer { padding:10px 0 0; }
 
@@ -155,148 +155,148 @@ st.markdown(CSS, unsafe_allow_html=True)
 left, right = st.columns([0.28, 0.72], gap='large')
 
 with left:
-  st.markdown('<div class="left-pane">', unsafe_allow_html=True)
-  try:
-    st.image('images/Nuovo_Logo.png', width=200)
-  except Exception:
-    st.markdown('')
-  st.markdown('---')
+    st.markdown('<div class="left-pane">', unsafe_allow_html=True)
+    try:
+        st.image('images/Nuovo_Logo.png', width=200)
+    except Exception:
+        st.markdown('')
+    st.markdown('---')
 
-  # Menù sinistro con icone
-  labels = {
-      "📤 Estrazione": "Leggi documento",
-      "💬 Chat": "Chat",
-      "🕒 Cronologia": "Cronologia",
-  }
-  choice = st.radio('', list(labels.keys()), index=0)
-  nav = labels[choice]
+    # Menù sinistro con icone
+    labels = {
+        "📤 Estrazione": "Leggi documento",
+        "💬 Chat": "Chat",
+        "🕒 Cronologia": "Cronologia",
+    }
+    choice = st.radio('', list(labels.keys()), index=0)
+    nav = labels[choice]
 
-  st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)
 
 with right:
-  st.markdown('<div class="right-pane">', unsafe_allow_html=True)
-  st.title('EasyLook.DOC')
+    st.markdown('<div class="right-pane">', unsafe_allow_html=True)
+    st.title('EasyLook.DOC')
 
-  if nav == 'Leggi documento':
-    st.subheader('📄 Scegli il documento')
-    if not HAVE_FORMRECOGNIZER:
-      st.warning('Installa azure-ai-formrecognizer>=3.3.0')
-    else:
-      file_name = st.text_input("Nome file (es. Elenco - R1.pdf)", key='file_name_input')
-      col1, col2 = st.columns([1, 1])
-      with col1:
-        extract = st.button('🔎 Leggi documento', use_container_width=True)
-      with col2:
-        if st.button('🗂️ Cambia documento', use_container_width=True):
-          ss['document_text'] = ''
-          ss['chat_history'] = []
-          st.rerun()
-
-      if extract:
-        if not (AZURE_DOCINT_ENDPOINT and (AZURE_DOCINT_KEY or (TENANT_ID and CLIENT_ID and CLIENT_SECRET)) and AZURE_BLOB_CONTAINER_SAS_URL and file_name):
-          st.error('Completa le variabili e inserisci il nome file.')
+    if nav == 'Leggi documento':
+        st.subheader('📄 Scegli il documento')
+        if not HAVE_FORMRECOGNIZER:
+            st.warning('Installa azure-ai-formrecognizer>=3.3.0')
         else:
-          try:
-            blob_url = build_blob_sas_url(AZURE_BLOB_CONTAINER_SAS_URL, file_name)
-            if AZURE_DOCINT_KEY:
-              di_client = DocumentAnalysisClient(endpoint=AZURE_DOCINT_ENDPOINT, credential=AzureKeyCredential(AZURE_DOCINT_KEY))
-            else:
-              di_client = DocumentAnalysisClient(endpoint=AZURE_DOCINT_ENDPOINT, credential=ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET))
-            poller = di_client.begin_analyze_document_from_url(model_id='prebuilt-read', document_url=blob_url)
-            result = poller.result()
+            file_name = st.text_input("Nome file (es. Elenco - R1.pdf)", key='file_name_input')
+            col1, col2 = st.columns([1, 1])
+            with col1:
+                extract = st.button('🔎 Leggi documento', use_container_width=True)
+            with col2:
+                if st.button('🗂️ Cambia documento', use_container_width=True):
+                    ss['document_text'] = ''
+                    ss['chat_history'] = []
+                    st.rerun()
 
-            pages_text = []
-            for page in getattr(result, 'pages', []) or []:
-              if hasattr(page, 'content') and page.content:
-                pages_text.append(page.content)
-            full_text = '\n\n'.join(pages_text).strip()
+            if extract:
+                if not (AZURE_DOCINT_ENDPOINT and (AZURE_DOCINT_KEY or (TENANT_ID and CLIENT_ID and CLIENT_SECRET)) and AZURE_BLOB_CONTAINER_SAS_URL and file_name):
+                    st.error('Completa le variabili e inserisci il nome file.')
+                else:
+                    try:
+                        blob_url = build_blob_sas_url(AZURE_BLOB_CONTAINER_SAS_URL, file_name)
+                        if AZURE_DOCINT_KEY:
+                            di_client = DocumentAnalysisClient(endpoint=AZURE_DOCINT_ENDPOINT, credential=AzureKeyCredential(AZURE_DOCINT_KEY))
+                        else:
+                            di_client = DocumentAnalysisClient(endpoint=AZURE_DOCINT_ENDPOINT, credential=ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET))
+                        poller = di_client.begin_analyze_document_from_url(model_id='prebuilt-read', document_url=blob_url)
+                        result = poller.result()
 
-            if not full_text:
-              all_lines = []
-              for page in getattr(result, 'pages', []) or []:
-                for line in getattr(page, 'lines', []) or []:
-                  all_lines.append(line.content)
-              full_text = '\n'.join(all_lines).strip()
+                        pages_text = []
+                        for page in getattr(result, 'pages', []) or []:
+                            if hasattr(page, 'content') and page.content:
+                                pages_text.append(page.content)
+                        full_text = '\n\n'.join(pages_text).strip()
 
-            if full_text:
-              st.success('✅ Testo estratto correttamente!')
-              st.text_area('Anteprima testo (~4000 caratteri):', full_text[:4000], height=300)
-              ss['document_text'] = full_text
-              ss['chat_history'] = []  # reset chat per il nuovo doc
-            else:
-              st.warning('Nessun testo estratto. Verifica file o SAS.')
-          except Exception as e:
-            st.error(f"Errore durante l'analisi del documento: {e}")
+                        if not full_text:
+                            all_lines = []
+                            for page in getattr(result, 'pages', []) or []:
+                                for line in getattr(page, 'lines', []) or []:
+                                    all_lines.append(line.content)
+                            full_text = '\n'.join(all_lines).strip()
 
-  else:
-    st.subheader('💬 Chiedi quello che vuoi')
-    if not ss.get('document_text'):
-      st.info("Prima scegli il documento (vai in 'Leggi documento').")
+                        if full_text:
+                            st.success('✅ Testo estratto correttamente!')
+                            st.text_area('Anteprima testo (~4000 caratteri):', full_text[:4000], height=300)
+                            ss['document_text'] = full_text
+                            ss['chat_history'] = []  # reset chat per il nuovo doc
+                        else:
+                            st.warning('Nessun testo estratto. Verifica file o SAS.')
+                    except Exception as e:
+                        st.error(f"Errore durante l'analisi del documento: {e}")
+
     else:
-      # --- Scheda chat: prima i messaggi (in alto) ---
-      st.markdown('<div class="chat-card">', unsafe_allow_html=True)
-      st.markdown('<div class="chat-header">Conversazione</div>', unsafe_allow_html=True)
-
-      chat_container = st.container()
-      with chat_container:
-        st.markdown('<div class="chat-body" id="chat-body">', unsafe_allow_html=True)
-        if not ss['chat_history']:
-          st.markdown('<div class="small">Nessun messaggio. Fai una domanda sul documento.</div>', unsafe_allow_html=True)
+        st.subheader('💬 Chiedi quello che vuoi')
+        if not ss.get('document_text'):
+            st.info("Prima scegli il documento (vai in 'Leggi documento').")
         else:
-          for m in ss['chat_history']:
-            role = m['role']
-            content = html.escape(m['content']).replace('\n', '<br>')
-            ts = human(m['ts'])
-            if role == 'user':
-              st.markdown(f'''
-                <div class='msg-row' style='justify-content:flex-end;'>
-                  <div class='msg user'>
-                    {content}
-                    <div class='meta'>{ts}</div>
-                  </div>
-                  <div class='avatar user'>U</div>
-                </div>''', unsafe_allow_html=True)
-            else:
-              st.markdown(f'''
-                <div class='msg-row'>
-                  <div class='avatar ai'>A</div>
-                  <div class='msg ai'>
-                    {content}
-                    <div class='meta'>{ts}</div>
-                  </div>
-                </div>''', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+            # --- Scheda chat: prima i messaggi (in alto) ---
+            st.markdown('<div class="chat-card">', unsafe_allow_html=True)
+            st.markdown('<div class="chat-header">Conversazione</div>', unsafe_allow_html=True)
 
-        import streamlit.components.v1 as components
-        components.html('''
-          <script>
-          const el = window.parent.document.getElementById('chat-body');
-          if (el) { el.scrollTop = el.scrollHeight; }
-          </script>
-        ''', height=0)
+            chat_container = st.container()
+            with chat_container:
+                st.markdown('<div class="chat-body" id="chat-body">', unsafe_allow_html=True)
+                if not ss['chat_history']:
+                    st.markdown('<div class="small">Nessun messaggio. Fai una domanda sul documento.</div>', unsafe_allow_html=True)
+                else:
+                    for m in ss['chat_history']:
+                        role = m['role']
+                        content = html.escape(m['content']).replace('\n', '<br>')
+                        ts = human(m['ts'])
+                        if role == 'user':
+                            st.markdown(f"""
+                                <div class='msg-row' style='justify-content:flex-end;'>
+                                  <div class='msg user'>
+                                    {content}
+                                    <div class='meta'>{ts}</div>
+                                  </div>
+                                  <div class='avatar user'>U</div>
+                                </div>""", unsafe_allow_html=True)
+                        else:
+                            st.markdown(f"""
+                                <div class='msg-row'>
+                                  <div class='avatar ai'>A</div>
+                                  <div class='msg ai'>
+                                    {content}
+                                    <div class='meta'>{ts}</div>
+                                  </div>
+                                </div>""", unsafe_allow_html=True)
+                st.markdown('</div>', unsafe_allow_html=True)
 
-      # --- Input in basso (fuori dal riquadro scrollabile) ---
-      st.markdown('<div class="chat-footer">', unsafe_allow_html=True)
-      prompt = st.chat_input('Scrivi la tua domanda sul documento:')
-      st.markdown('</div>', unsafe_allow_html=True)
+                import streamlit.components.v1 as components
+                components.html('''
+                    <script>
+                    const el = window.parent.document.getElementById('chat-body');
+                    if (el) { el.scrollTop = el.scrollHeight; }
+                    </script>
+                ''', height=0)
 
-      if prompt:
-        ss['chat_history'].append({'role': 'user', 'content': prompt, 'ts': now_local_iso()})
-        try:
-          doc_text = ss['document_text']
-          response = client.chat.completions.create(
-            model=DEPLOYMENT_NAME,
-            messages=[
-              {'role': 'system', 'content': 'Sei un assistente che risponde SOLO sulla base del documento fornito.'},
-              {'role': 'system', 'content': f'Contenuto documento:\n{doc_text[:12000]}' },
-              {'role': 'user',   'content': prompt}
-            ],
-            temperature=0.3,
-            max_tokens=700
-          )
-          answer = response.choices[0].message.content.strip()
-          ss['chat_history'].append({'role': 'assistant', 'content': answer, 'ts': now_local_iso()})
-        except Exception as api_err:
-          ss['chat_history'].append({'role': 'assistant', 'content': f'Errore API: {api_err}', 'ts': now_local_iso()})
-        st.rerun()
-  st.markdown('</div>', unsafe_allow_html=True)
+            # --- Input in basso (fuori dal riquadro scrollabile) ---
+            st.markdown('<div class="chat-footer">', unsafe_allow_html=True)
+            prompt = st.chat_input('Scrivi la tua domanda sul documento:')
+            st.markdown('</div>', unsafe_allow_html=True)
+
+            if prompt:
+                ss['chat_history'].append({'role': 'user', 'content': prompt, 'ts': now_local_iso()})
+                try:
+                    doc_text = ss['document_text']
+                    response = client.chat.completions.create(
+                        model=DEPLOYMENT_NAME,
+                        messages=[
+                            {'role': 'system', 'content': 'Sei un assistente che risponde SOLO sulla base del documento fornito.'},
+                            {'role': 'system', 'content': f'Contenuto documento:\n{doc_text[:12000]}' },
+                            {'role': 'user',   'content': prompt}
+                        ],
+                        temperature=0.3,
+                        max_tokens=700
+                    )
+                    answer = response.choices[0].message.content.strip()
+                    ss['chat_history'].append({'role': 'assistant', 'content': answer, 'ts': now_local_iso()})
+                except Exception as api_err:
+                    ss['chat_history'].append({'role': 'assistant', 'content': f'Errore API: {api_err}', 'ts': now_local_iso()})
+                st.rerun()
+    st.markdown('</div>', unsafe_allow_html=True)
