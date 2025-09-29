@@ -162,14 +162,31 @@ label[data-baseweb="radio"]:has(input:checked) {
 /* Applica lo split al contenitore centrale (copre tutta la viewport) */
 .block-container {
   min-height: 100vh;
-  background:
-    linear-gradient(
-      to right,
-      #ffffff 0 28%,        /* sinistra bianca (28% = colonna sinistra) */
-      #e5e7eb 28% 28.4%,    /* sottilissima barra verticale */
-      #f5f7fa 28.4% 100%    /* destra grigio chiaro */
-    );
+
+/* Split background applicato al container principale della pagina */
+[data-testid="stAppViewContainer"] > .main {
+  min-height: 100vh;
+  /* grigio base della pagina */
+  background-color: #f5f7fa;
+
+  /* split centrato sulla larghezza del contenitore */
+  background-image: linear-gradient(
+    to right,
+    #ffffff 0 28%,      /* sinistra bianca: stessa percentuale della colonna sinistra */
+    #e5e7eb 28% 28.4%,  /* sottilissima barra verticale */
+    #f5f7fa 28.4% 100%  /* destra grigio chiaro */
+  );
+  background-repeat: no-repeat;
+  background-position: top center;
+  background-size: 1200px 100vh;   /* deve corrispondere a .block-container { max-width: 1200px } */
 }
+
+/* Assicuriamoci che i vecchi wrapper non colorino a “box” */
+.left-pane, .right-pane { background: transparent !important; border: 0 !important; }
+ 
+}
+
+
 
 </style>
 '''
