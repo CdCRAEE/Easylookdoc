@@ -58,7 +58,7 @@ ss.setdefault('document_text', '')
 ss.setdefault('chat_history', [])  # [{'role','content','ts'}]
 
 # --------- STYLE ---------
-CSS = """
+CSS = ""
 <style>
 :root{
   --yellow:#FDF6B4; --yellow-border:#FDF6B4;
@@ -121,7 +121,7 @@ div[role="radiogroup"] label[data-baseweb="radio"]{
 div[role="radiogroup"] label[data-baseweb="radio"]:hover{background:#eef5ff;}
 label[data-baseweb="radio"]:has(input:checked){background:#e6f0ff;font-weight:600;}
 </style>
-"""
+""
 st.markdown(CSS, unsafe_allow_html=True)
 
 # --------- LAYOUT ---------
