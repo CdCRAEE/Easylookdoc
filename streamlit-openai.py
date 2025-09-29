@@ -178,8 +178,15 @@ with left:
     colA, colB = st.columns(2)
     with colA:
         st.image('images/logoRAEE.png', width=80)
+    except Exception:
+        st.markdown('')
+    st.markdown('---')
+
     with colB:
         st.image('images/logoNPA.png', width=80)
+    except Exception:
+        st.markdown('')
+    st.markdown('---')
 
     st.markdown('</div>', unsafe_allow_html=True)
 
