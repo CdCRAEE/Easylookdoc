@@ -93,19 +93,35 @@ CSS = '''
 .chat-footer { padding:10px 0 0; }
 
 #--- stile pulsanti personalizzato --- */
+# Pulsanti outline: bordo blu + testo blu, sempre */
 .stButton > button {
-    background-color: #ffffff !important;
-    color: #007BFF !important;
-    border: 1px solid #007BFF !important;
+    background-color: #ffffff !important;  /* sfondo bianco */
+    color: #007BFF !important;             /* testo blu */
+    border: 1px solid #007BFF !important;  /* bordo blu */
     border-radius: 8px !important;
     font-weight: 600 !important;
     padding: 0.5rem 1rem !important;
+    box-shadow: none !important;
 }
 
+# Hover: mantieni outline, scurisci leggermente il blu */
 .stButton > button:hover {
-    background-color: #007BFF !important;
-    color: #ffffff !important;
+    background-color: #ffffff !important;
+    color: #0056b3 !important;
+    border-color: #0056b3 !important;
 }
+
+# Focus da tastiera: alone leggero blu (accessibilità) */
+.stButton > button:focus {
+    outline: none !important;
+    box-shadow: 0 0 0 3px rgba(0,123,255,0.25) !important;
+}
+
+# Aumenta la distanza fra le voci del menù a sinistra */
+div[role="radiogroup"] label {
+    margin-bottom: 12px !important;  /* spazio verticale tra una voce e l'altra */
+}
+
 </style>
 '''
 st.markdown(CSS, unsafe_allow_html=True)
@@ -117,19 +133,19 @@ with left:
     try:
         st.image('images/Nuovo_Logo.png', width=200)
     except Exception:
-        st.markdown('### EasyLook.DOC')
+        st.markdown('')
     st.markdown('---')
-    nav = st.radio('Navigazione', ['Estrazione documento', 'Chat', 'Cronologia'], index=0)
+    nav = st.radio('', ['Leggi documento', 'Chat', 'Cronologia'], index=0)
 
 with right:
     st.title('EasyLook.DOC')
 
-    if nav == 'Estrazione documento':
+    if nav == 'Leggi documento':
         st.subheader('📄 Scegli il documento')
         if not HAVE_FORMRECOGNIZER:
             st.warning('Installa azure-ai-formrecognizer>=3.3.0')
         else:
-            file_name = st.text_input("Nome file nel container (es. 'Elenco - R1.pdf')", key='file_name_input')
+            file_name = st.text_input("Nome file (es. Elenco - R1.pdf)", key='file_name_input')
             col1, col2 = st.columns([1, 1])
             with col1:
                 extract = st.button('🔎 Leggi documento', use_container_width=True)
