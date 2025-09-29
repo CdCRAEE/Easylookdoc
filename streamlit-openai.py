@@ -67,16 +67,20 @@ ss.setdefault('chat_history', [])  # [{'role','content','ts'}]
 CSS = '''
 <style>
 :root {
-  --yellow: #f5e663;
-  --yellow-border: #e8d742;
-  --ai-bg: #ffffff;
-  --ai-border: #e8edf3;
+  --yellow: #FDF6B4;
+  --yellow-border: #FDF6B4;
+  --ai-bg: #F1F6FA;
+  --ai-border: #F1F6FA;
   --text: #1f2b3a;
 }
 .block-container { max-width: 1200px; }
 .chat-card { border:1px solid #e6eaf0; border-radius:14px; background:#fff; box-shadow:0 2px 8px rgba(16,24,40,0.04); }
 .chat-header { padding:12px 16px; border-bottom:1px solid #eef2f7; font-weight:800; color:#1f2b3a; }
-.chat-body { padding:14px; height:520px; overflow:auto; }
+.chat-body {
+    padding:14px;
+    max-height:70vh;  /* o 600px */
+    overflow-y:auto;
+}
 .msg-row { display:flex; gap:10px; margin:8px 0; }
 .msg { padding:10px 14px; border-radius:16px; border:1px solid; max-width:78%; line-height:1.45; font-size:15px; }
 .msg .meta { font-size:11px; opacity:.7; margin-top:6px; }
@@ -87,6 +91,21 @@ CSS = '''
 .avatar.user { background:#fff0a6; color:#5a4a00; }
 .small { font-size:12px; color:#5b6b7e; margin:6px 0 2px; }
 .chat-footer { padding:10px 0 0; }
+
+#--- stile pulsanti personalizzato --- */
+.stButton > button {
+    background-color: #ffffff !important;
+    color: #007BFF !important;
+    border: 1px solid #007BFF !important;
+    border-radius: 8px !important;
+    font-weight: 600 !important;
+    padding: 0.5rem 1rem !important;
+}
+
+.stButton > button:hover {
+    background-color: #007BFF !important;
+    color: #ffffff !important;
+}
 </style>
 '''
 st.markdown(CSS, unsafe_allow_html=True)
@@ -100,22 +119,22 @@ with left:
     except Exception:
         st.markdown('### EasyLook.DOC')
     st.markdown('---')
-    nav = st.radio('Navigazione', ['Estrazione documento', 'Chat'], index=0)
+    nav = st.radio('Navigazione', ['Estrazione documento', 'Chat', 'Cronologia'], index=0)
 
 with right:
     st.title('EasyLook.DOC')
 
     if nav == 'Estrazione documento':
-        st.subheader('📄 Step 1 · Estrai testo da Blob')
+        st.subheader('📄 Scegli il documento')
         if not HAVE_FORMRECOGNIZER:
             st.warning('Installa azure-ai-formrecognizer>=3.3.0')
         else:
-            file_name = st.text_input("Nome file nel container (es. 'contratto1.pdf')", key='file_name_input')
+            file_name = st.text_input("Nome file nel container (es. 'Elenco - R1.pdf')", key='file_name_input')
             col1, col2 = st.columns([1, 1])
             with col1:
-                extract = st.button('🔎 Estrai testo', use_container_width=True)
+                extract = st.button('🔎 Leggi documento', use_container_width=True)
             with col2:
-                if st.button('🗂️ Reset documento', use_container_width=True):
+                if st.button('🗂️ Cambia documento', use_container_width=True):
                     ss['document_text'] = ''
                     ss['chat_history'] = []
                     st.rerun()
@@ -157,9 +176,9 @@ with right:
                         st.error(f"Errore durante l'analisi del documento: {e}")
 
     else:
-        st.subheader('💬 Step 2 · Chat sul documento')
+        st.subheader('💬 Chiedi quello che vuoi')
         if not ss.get('document_text'):
-            st.info("Prima estrai un documento dal Blob (vai in 'Estrazione documento').")
+            st.info("Prima scegli il documento (vai in 'Leggi documento').")
         else:
             # --- Scheda chat: prima i messaggi (in alto) ---
             st.markdown('<div class="chat-card">', unsafe_allow_html=True)
