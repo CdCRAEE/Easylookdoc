@@ -71,7 +71,7 @@ CSS = '''
 /* Sfondo generale grigio chiaro dell'app */
 .stApp { background: #f5f7fa; }
 
-/* Pane sinistro bianco + barra verticale */
+/* Panel sinistro bianco + barra verticale */
 .left-pane {
   background: #ffffff;
   border-right: 1px solid #e5e7eb;
@@ -79,7 +79,7 @@ CSS = '''
   padding: 8px 12px;
 }
 
-/* Pane destro su grigio chiaro */
+/* Panel destro su grigio chiaro */
 .right-pane {
   background: #f5f7fa;
   min-height: 100vh;
@@ -142,11 +142,35 @@ div[role="radiogroup"] label[data-baseweb="radio"] {
   user-select: none;
   margin-bottom: 12px !important;
 }
-div[role="radiogroup"] label[data-baseweb="radio"]:hover { background: #eef5ff; }
+div[role="radiogroup"] label[data-baseweb="radio"]:hover { background: #9BC3FF; }
 label[data-baseweb="radio"]:has(input:checked) {
-  background: #e6f0ff;
+  background: #FFFFFF;
   font-weight: 600;
 }
+
+/* === OVERRIDE per sfondo “split” a tutta altezza === */
+
+/* Lo sfondo globale resta grigio */
+.stApp { background: #f5f7fa; }
+
+/* I wrapper non colorano più a riquadro (spariscono i “box” in alto) */
+.left-pane, .right-pane {
+  background: transparent !important;
+  border-right: 0 !important;
+}
+
+/* Applica lo split al contenitore centrale (copre tutta la viewport) */
+.block-container {
+  min-height: 100vh;
+  background:
+    linear-gradient(
+      to right,
+      #ffffff 0 28%,        /* sinistra bianca (28% = colonna sinistra) */
+      #e5e7eb 28% 28.4%,    /* sottilissima barra verticale */
+      #f5f7fa 28.4% 100%    /* destra grigio chiaro */
+    );
+}
+
 </style>
 '''
 st.markdown(CSS, unsafe_allow_html=True)
