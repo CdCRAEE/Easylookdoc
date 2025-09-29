@@ -3,6 +3,9 @@ import streamlit as st
 from datetime import datetime, timezone
 from openai import AzureOpenAI
 from azure.identity import ClientSecretCredential
+# [ADD] Azure Cognitive Search
+from azure.search.documents import SearchClient
+from azure.core.credentials import AzureKeyCredential
 
 # Document Intelligence (opzionale)
 try:
@@ -26,6 +29,12 @@ AZURE_DOCINT_ENDPOINT = os.getenv('AZURE_DOCINT_ENDPOINT')
 AZURE_DOCINT_KEY = os.getenv('AZURE_DOCINT_KEY')
 AZURE_BLOB_CONTAINER_SAS_URL = os.getenv('AZURE_BLOB_CONTAINER_SAS_URL')
 
+# [ADD] --- CONFIGURAZIONE SEARCH ---
+AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")   # es: https://easylookdoc-search.search.windows.net
+AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
+AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX")
+
+
 # --------- TOKEN + CLIENT ---------
 try:
     credential = ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
@@ -34,6 +43,17 @@ try:
 except Exception as e:
     st.error(f'Errore inizializzazione Azure: {e}')
     st.stop()
+
+# >>> QUI <<< subito dopo il try/except
+search_client = None
+if AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_KEY and AZURE_SEARCH_INDEX:
+    search_client = SearchClient(
+        endpoint=AZURE_SEARCH_ENDPOINT,
+        index_name=AZURE_SEARCH_INDEX,
+        credential=AzureKeyCredential(AZURE_SEARCH_KEY)
+    )
+else:
+    st.error("⚠️ Configurazione Azure Search mancante.")
 
 # --------- HELPERS ---------
 def build_blob_sas_url(container_sas_url: str, blob_name: str) -> str:
@@ -255,23 +275,52 @@ with right:
             prompt = st.chat_input('Scrivi la tua domanda sul documento:')
             st.markdown('</div>', unsafe_allow_html=True)
 
-            if prompt:
-                ss['chat_history'].append({'role': 'user', 'content': prompt, 'ts': now_local_iso()})
-                try:
-                    doc_text = ss['document_text']
-                    response = client.chat.completions.create(
-                        model=DEPLOYMENT_NAME,
-                        messages=[
-                            {'role': 'system', 'content': 'Sei un assistente che risponde SOLO sulla base del documento fornito.'},
-                            {'role': 'system', 'content': f'Contenuto documento:\n{doc_text[:12000]}' },
-                            {'role': 'user',   'content': prompt}
-                        ],
-                        temperature=0.3,
-                        max_tokens=700
-                    )
-                    answer = response.choices[0].message.content.strip()
-                    ss['chat_history'].append({'role': 'assistant', 'content': answer, 'ts': now_local_iso()})
-                except Exception as api_err:
-                    ss['chat_history'].append({'role': 'assistant', 'content': f'Errore API: {api_err}', 'ts': now_local_iso()})
-                st.rerun()
+if prompt:
+    ss['chat_history'].append({'role': 'user', 'content': prompt, 'ts': now_local_iso()})
+    try:
+        if not search_client:
+            raise RuntimeError("Azure Search non è configurato.")
+
+        # Step 1: recupero documenti dal tuo indice (top-k)
+        results = search_client.search(prompt, top=3)
+
+        docs_text = []
+        references = []
+        for r in results:
+            # Campi tipici dello schema di chunking: "chunk" e "file_name"
+            if "chunk" in r:
+                docs_text.append(r["chunk"])
+            if "file_name" in r:
+                references.append(r["file_name"])
+
+        context = "\n\n".join(docs_text)
+
+        if not context:
+            ss['chat_history'].append({
+                'role': 'assistant',
+                'content': "⚠️ Nessun documento rilevante trovato nell'indice.",
+                'ts': now_local_iso()
+            })
+        else:
+            # Step 2: chiamata a GPT con il contesto recuperato da Search
+            response = client.chat.completions.create(
+                model=DEPLOYMENT_NAME,
+                messages=[
+                    {"role": "system", "content": "Sei un assistente che risponde solo basandosi sui documenti forniti."},
+                    {"role": "system", "content": f"Contesto:\n{context}"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0,        # coerente con Q/A su base documentale
+                max_tokens=500
+            )
+
+            answer = response.choices[0].message.content.strip()
+            if references:
+                answer += "\n\n— 📎 Fonti: " + ", ".join(sorted(set(references)))
+
+            ss['chat_history'].append({'role': 'assistant', 'content': answer, 'ts': now_local_iso()})
+
+    except Exception as api_err:
+        ss['chat_history'].append({'role': 'assistant', 'content': f'Errore durante la ricerca o risposta: {api_err}', 'ts': now_local_iso()})
+    st.rerun()
     st.markdown('</div>', unsafe_allow_html=True)
