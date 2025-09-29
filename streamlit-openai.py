@@ -170,7 +170,7 @@ with left:
 
 with right:
     st.markdown('<div class="right-pane">', unsafe_allow_html=True)
-    st.title('EasyLook.DOC')
+    st.title('BENVENUTO !')
 
     if nav == 'Leggi documento':
         st.subheader('📄 Scegli il documento')
