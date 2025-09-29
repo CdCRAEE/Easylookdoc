@@ -217,44 +217,79 @@ with right:
         st.markdown('</div>', unsafe_allow_html=True)   # chiude chat-footer
         st.markdown('</div>', unsafe_allow_html=True)    # chiude chat-card
 
-        # Logica domanda/risposta
-        if sent and user_q.strip():
-            ss['chat_history'].append({'role': 'user', 'content': user_q, 'ts': datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')})
-            try:
-                if not search_client:
-                    raise RuntimeError("Azure Search non è configurato.")
+# --- LOGICA DOMANDA/RISPOSTA CON PLACEHOLDER "STA SCRIVENDO" ---
 
-                results = search_client.search(user_q, top=3)
+# 1) Se sto “processando” una domanda pendente, eseguo ORA il lavoro e rimpiazzo il placeholder
+if st.session_state.get('do_process'):
+    try:
+        user_q_pending = st.session_state.get('pending_q', '')
+        if not search_client:
+            raise RuntimeError("Azure Search non è configurato.")
 
-                docs_text, references = [], []
-                for r in results:
-                    if "chunk" in r:
-                        docs_text.append(r["chunk"])
-                    if "file_name" in r:
-                        references.append(r["file_name"])
+        results = search_client.search(user_q_pending, top=3)
 
-                context = "\n\n".join(docs_text)
+        docs_text, references = [], []
+        for r in results:
+            if "chunk" in r:
+                docs_text.append(r["chunk"])
+            if "file_name" in r:
+                references.append(r["file_name"])
 
-                if not context:
-                    answer = "⚠️ Nessun documento rilevante trovato nell'indice."
-                else:
-                    resp = client.chat.completions.create(
-                        model=DEPLOYMENT_NAME,
-                        messages=[
-                            {"role": "system", "content": "Sei un assistente che risponde solo basandosi sui documenti forniti."},
-                            {"role": "system", "content": f"Contesto:\n{context}"},
-                            {"role": "user", "content": user_q},
-                        ],
-                        temperature=0,
-                        max_tokens=500
-                    )
-                    answer = resp.choices[0].message.content.strip()
-                    if references:
-                        answer += "\n\n— 📎 Fonti: " + ", ".join(sorted(set(references)))
-            except Exception as e:
-                answer = f"Errore durante la ricerca o risposta: {e}"
+        context = "\n\n".join(docs_text)
 
-            ss['chat_history'].append({'role': 'assistant', 'content': answer, 'ts': datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')})
-            st.experimental_rerun()
+        if not context:
+            answer = "⚠️ Nessun documento rilevante trovato nell'indice."
+        else:
+            resp = client.chat.completions.create(
+                model=DEPLOYMENT_NAME,
+                messages=[
+                    {"role": "system", "content": "Sei un assistente che risponde solo basandosi sui documenti forniti."},
+                    {"role": "system", "content": f"Contesto:\n{context}"},
+                    {"role": "user", "content": user_q_pending},
+                ],
+                temperature=0,
+                max_tokens=500
+            )
+            answer = resp.choices[0].message.content.strip()
+            if references:
+                answer += "\n\n— 📎 Fonti: " + ", ".join(sorted(set(references)))
+    except Exception as e:
+        answer = f"Errore durante la ricerca o risposta: {e}"
+
+    # Sostituisco l'ULTIMO messaggio (il placeholder) con la risposta reale
+    if ss['chat_history'] and ss['chat_history'][-1]['role'] == 'assistant':
+        ss['chat_history'][-1] = {
+            'role': 'assistant',
+            'content': answer,
+            'ts': datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')
+        }
+
+    # Pulizia stato
+    st.session_state['do_process'] = False
+    st.session_state.pop('pending_q', None)
+    # Non serve rerun: la risposta è già in chat
+
+# 2) Gestione invio dal form: aggiungo utente + placeholder e chiedo un rerun
+if sent and user_q.strip():
+    # messaggio utente
+    ss['chat_history'].append({
+        'role': 'user',
+        'content': user_q,
+        'ts': datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')
+    })
+    # placeholder "sta scrivendo…" come messaggio AI
+    ss['chat_history'].append({
+        'role': 'assistant',
+        'content': '💬 Sta scrivendo...',
+        'ts': datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')
+    })
+
+    # salvo la domanda e imposto il flag per processare al prossimo run
+    st.session_state['pending_q'] = user_q
+    st.session_state['do_process'] = True
+
+    st.experimental_rerun()
+
+
 
     st.markdown('</div>', unsafe_allow_html=True)
