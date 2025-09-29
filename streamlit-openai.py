@@ -166,7 +166,23 @@ with left:
     choice = st.radio('', list(labels.keys()), index=0)
     nav = labels[choice]
 
+# --- QUI: spingiamo i loghi in fondo ---
+    st.markdown(
+        """
+        <div style="flex-grow:1"></div> <!-- spaziatore -->
+        """,
+        unsafe_allow_html=True
+    )
+
+    # blocco loghi in basso
+    colA, colB = st.columns(2)
+    with colA:
+        st.image('images/logoRAEE.png', width=80)
+    with colB:
+        st.image('images/logoNPA.png', width=80)
+
     st.markdown('</div>', unsafe_allow_html=True)
+
 
 with right:
     st.markdown('<div class="right-pane">', unsafe_allow_html=True)
@@ -225,8 +241,7 @@ with right:
 
     else:
         st.subheader('💬 Chiedi quello che vuoi')
-        if not ss.get('document_text'):
-            st.info("Prima scegli il documento (vai in 'Leggi documento').")
+	st.info("Puoi fare una domanda: cercherò nei documenti dell'indice configurato")
         else:
             # --- Scheda chat: prima i messaggi (in alto) ---
             st.markdown('<div class="chat-card">', unsafe_allow_html=True)
