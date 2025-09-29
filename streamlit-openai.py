@@ -61,133 +61,68 @@ ss.setdefault('chat_history', [])  # [{'role','content','ts'}]
 CSS = '''
 <style>
 :root {
-  --yellow: #FDF6B4;
-  --yellow-border: #FDF6B4;
-  --ai-bg: #F1F6FA;
-  --ai-border: #F1F6FA;
-  --text: #1f2b3a;
+  /* colori chat */
+  --yellow:#FDF6B4; --yellow-border:#FDF6B4;
+  --ai-bg:#F1F6FA; --ai-border:#F1F6FA; --text:#1f2b3a;
+
+  /* layout split */
+  --content-width: 1200px; /* deve combaciare con .block-container */
+  --split: 28%;            /* stessa percentuale delle columns [0.28, 0.72] */
 }
 
-/* Sfondo generale grigio chiaro dell'app */
-.stApp { background: #f5f7fa; }
+/* ===== SFONDO SPLIT A TUTTA PAGINA (definitivo) ===== */
+html, body { height: 100%; }
+.stApp { background:#f5f7fa !important; }
 
-/* Panel sinistro bianco + barra verticale */
-.left-pane {
-  background: #ffffff;
-  border-right: 1px solid #e5e7eb;
-  min-height: 100vh;
-  padding: 8px 12px;
-}
-
-/* Panel destro su grigio chiaro */
-.right-pane {
-  background: #f5f7fa;
-  min-height: 100vh;
-  padding-left: 16px;
-}
-
-.block-container { max-width: 1200px; }
-.chat-card { border:1px solid #e6eaf0; border-radius:14px; background:#fff; box-shadow:0 2px 8px rgba(16,24,40,0.04); }
-.chat-header { padding:12px 16px; border-bottom:1px solid #eef2f7; font-weight:800; color:#1f2b3a; }
-
-/* Chat a scorrimento entro il box */
-.chat-body {
-  padding:14px;
-  max-height:70vh;  /* cresce fino a 70% viewport, poi scrolla */
-  overflow-y:auto;
-}
-
-.msg-row { display:flex; gap:10px; margin:8px 0; }
-.msg { padding:10px 14px; border-radius:16px; border:1px solid; max-width:78%; line-height:1.45; font-size:15px; }
-.msg .meta { font-size:11px; opacity:.7; margin-top:6px; }
-.msg.ai   { background: var(--ai-bg); border-color: var(--ai-border); color: var(--text); }
-.msg.user { background: var(--yellow); border-color: var(--yellow-border); color:#2b2b2b; margin-left:auto; }
-.avatar { width:28px; height:28px; border-radius:50%; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px; }
-.avatar.ai { background:#d9e8ff; color:#123; }
-avatar.user { background:#fff0a6; color:#5a4a00; }
-.small { font-size:12px; color:#5b6b7e; margin:6px 0 2px; }
-.chat-footer { padding:10px 0 0; }
-
-/* Pulsanti outline: bordo blu + testo blu (default) */
-.stButton > button {
-  background-color: #ffffff !important;
-  color: #007BFF !important;
-  border: 1px solid #007BFF !important;
-  border-radius: 8px !important;
-  font-weight: 600 !important;
-  padding: 0.5rem 1rem !important;
-  box-shadow: none !important;
-}
-/* Hover: diventano blu pieni con testo bianco */
-.stButton > button:hover {
-  background-color: #007BFF !important;
-  color: #ffffff !important;
-  border-color: #007BFF !important;
-}
-/* Focus da tastiera: alone blu per accessibilità */
-.stButton > button:focus {
-  outline: none !important;
-  box-shadow: 0 0 0 3px rgba(0,123,255,0.25) !important;
-}
-
-/* Menu sinistro: togli pallino, hover e selected */
-label[data-baseweb="radio"] > div:first-child { display:none !important; }
-div[role="radiogroup"] label[data-baseweb="radio"] {
-  display: flex !important;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 10px;
-  border-radius: 10px;
-  cursor: pointer;
-  user-select: none;
-  margin-bottom: 12px !important;
-}
-div[role="radiogroup"] label[data-baseweb="radio"]:hover { background: #9BC3FF; }
-label[data-baseweb="radio"]:has(input:checked) {
-  background: #FFFFFF;
-  font-weight: 600;
-}
-
-/* === OVERRIDE per sfondo “split” a tutta altezza === */
-
-/* Lo sfondo globale resta grigio */
-.stApp { background: #f5f7fa; }
-
-/* I wrapper non colorano più a riquadro (spariscono i “box” in alto) */
-.left-pane, .right-pane {
-  background: transparent !important;
-  border-right: 0 !important;
-}
-
-/* Applica lo split al contenitore centrale (copre tutta la viewport) */
-.block-container {
-  min-height: 100vh;
-
-/* Split background applicato al container principale della pagina */
-[data-testid="stAppViewContainer"] > .main {
-  min-height: 100vh;
-  /* grigio base della pagina */
-  background-color: #f5f7fa;
-
-  /* split centrato sulla larghezza del contenitore */
+/* Disegniamo lo split come overlay dietro a tutto */
+.stApp::before{
+  content:"";
+  position: fixed; inset: 0; z-index: -1; pointer-events: none;
   background-image: linear-gradient(
     to right,
-    #ffffff 0 28%,      /* sinistra bianca: stessa percentuale della colonna sinistra */
-    #e5e7eb 28% 28.4%,  /* sottilissima barra verticale */
-    #f5f7fa 28.4% 100%  /* destra grigio chiaro */
+    #ffffff 0 var(--split),                /* sinistra bianca */
+    #e5e7eb var(--split) calc(var(--split) + 2px), /* barra */
+    #f5f7fa calc(var(--split) + 2px) 100%  /* destra grigia */
   );
   background-repeat: no-repeat;
   background-position: top center;
-  background-size: 1200px 100vh;   /* deve corrispondere a .block-container { max-width: 1200px } */
+  background-size: var(--content-width) 100%;
 }
 
-/* Assicuriamoci che i vecchi wrapper non colorino a “box” */
-.left-pane, .right-pane { background: transparent !important; border: 0 !important; }
- 
+/* larghezza contenuti */
+.block-container{ max-width: var(--content-width); }
+
+/* ===== CHAT ===== */
+.chat-card{border:1px solid #e6eaf0;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(16,24,40,.04);}
+.chat-header{padding:12px 16px;border-bottom:1px solid #eef2f7;font-weight:800;color:#1f2b3a;}
+.chat-body{padding:14px;max-height:70vh;overflow-y:auto;}
+.msg-row{display:flex;gap:10px;margin:8px 0;}
+.msg{padding:10px 14px;border-radius:16px;border:1px solid;max-width:78%;line-height:1.45;font-size:15px;}
+.msg .meta{font-size:11px;opacity:.7;margin-top:6px;}
+.msg.ai{background:var(--ai-bg);border-color:var(--ai-border);color:var(--text);}
+.msg.user{background:var(--yellow);border-color:var(--yellow-border);color:#2b2b2b;margin-left:auto;}
+.avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;}
+.avatar.ai{background:#d9e8ff;color:#123;}
+.avatar.user{background:#fff0a6;color:#5a4a00;}
+.small{font-size:12px;color:#5b6b7e;margin:6px 0 2px;}
+.chat-footer{padding:10px 0 0;}
+
+/* ===== PULSANTI (outline blu, hover blu pieno) ===== */
+.stButton>button{
+  background:#fff!important;color:#007BFF!important;border:1px solid #007BFF!important;
+  border-radius:8px!important;font-weight:600!important;padding:.5rem 1rem!important;box-shadow:none!important;
 }
+.stButton>button:hover{background:#007BFF!important;color:#fff!important;border-color:#007BFF!important;}
+.stButton>button:focus{outline:none!important;box-shadow:0 0 0 3px rgba(0,123,255,.25)!important;}
 
-
-
+/* ===== MENÙ SINISTRO (icone, niente pallino, hover/selected) ===== */
+label[data-baseweb="radio"]>div:first-child{display:none!important;}
+div[role="radiogroup"] label[data-baseweb="radio"]{
+  display:flex!important;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;cursor:pointer;user-select:none;
+  margin-bottom:12px!important;
+}
+div[role="radiogroup"] label[data-baseweb="radio"]:hover{background:#eef5ff;}
+label[data-baseweb="radio"]:has(input:checked){background:#e6f0ff;font-weight:600;}
 </style>
 '''
 st.markdown(CSS, unsafe_allow_html=True)
