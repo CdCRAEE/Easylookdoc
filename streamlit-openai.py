@@ -52,6 +52,7 @@ except Exception as e:
 # --------- STATE ---------
 ss = st.session_state
 ss.setdefault('chat_history', [])  # [{'role','content','ts'}]
+ss.setdefault('active_doc', None)  # NEW: file selezionato da "Origine"
 
 # --------- STYLE ---------
 CSS = """
@@ -159,11 +160,52 @@ with right:
 
     if nav == 'Leggi documento':
         st.subheader('📄 Scegli il documento')
-        st.info("Questa sezione verrà sistemata dopo. Nel frattempo usa la Chat.")
+
+        # NEW: elenco documenti dall’indice tramite facets su file_name
+        if not search_client:
+            st.error("Azure Search non è configurato.")
+        else:
+            try:
+                results = search_client.search(
+                    search_text="*",
+                    top=0,
+                    facets=["file_name,count:1000"]  # richiede file_name facetable
+                )
+                facets = results.get_facets() or {}
+                files = [f["value"] for f in facets.get("file_name", [])]
+
+                if not files:
+                    st.info("Nessun documento trovato nell'indice.")
+                else:
+                    files = sorted(files, key=lambda x: x.lower())
+                    default_index = 0
+                    if ss.get('active_doc') in files:
+                        default_index = files.index(ss['active_doc'])
+                    sel = st.selectbox("Documenti indicizzati", files, index=default_index)
+                    st.caption("Seleziona un documento per filtrare la Chat (opzionale).")
+
+                    # salva selezione in stato
+                    ss['active_doc'] = sel
+
+                    # UI alternativa: elenco semplice
+                    # for name in files: st.markdown(f"- {name}")
+
+                    # Pulsante per azzerare il filtro (ricerca globale)
+                    if st.button("🔄 Usa tutti i documenti (rimuovi filtro)"):
+                        ss['active_doc'] = None
+                        st.experimental_rerun()
+            except Exception as e:
+                st.error(f"Errore nel recupero dell'elenco documenti: {e}")
 
     elif nav == 'Chat':
         st.subheader('💬 Chiedi quello che vuoi')
         st.info("Cercherò nei documenti indicizzati (Azure Search).")
+
+        # NEW: mostra lo stato del filtro attivo (se selezionato in Origine)
+        if ss.get('active_doc'):
+            st.success(f"Filtro attivo: **{ss['active_doc']}** (la ricerca riguarda solo questo documento)")
+        else:
+            st.caption("Nessun filtro selezionato: la ricerca riguarda tutta la cartella indicizzata.")
 
         # Card chat
         st.markdown('<div class="chat-card">', unsafe_allow_html=True)
@@ -178,6 +220,7 @@ with right:
             else:
                 for m in ss['chat_history']:
                     role = m['role']
+                    # NB: lasciamo l'escape; se vuoi usare markup nel placeholder, togli html.escape
                     content = html.escape(m['content']).replace('\n', '<br>')
                     ts = datetime.fromisoformat(m['ts']).strftime('%d/%m %H:%M')
                     if role == 'user':
@@ -226,7 +269,16 @@ if st.session_state.get('do_process'):
         if not search_client:
             raise RuntimeError("Azure Search non è configurato.")
 
-        results = search_client.search(user_q_pending, top=3)
+        # NEW: filtra per documento se selezionato in Origine
+        filter_expr = None
+        if st.session_state.get('active_doc'):
+            safe_name = st.session_state['active_doc'].replace("'", "''")
+            filter_expr = f"file_name eq '{safe_name}'"
+
+        if filter_expr:
+            results = search_client.search(user_q_pending, top=3, filter=filter_expr)
+        else:
+            results = search_client.search(user_q_pending, top=3)
 
         docs_text, references = [], []
         for r in results:
@@ -270,7 +322,7 @@ if st.session_state.get('do_process'):
     # Non serve rerun: la risposta è già in chat
 
 # 2) Gestione invio dal form: aggiungo utente + placeholder e chiedo un rerun
-if sent and user_q.strip():
+if 'sent' in locals() and sent and user_q.strip():
     # messaggio utente
     ss['chat_history'].append({
         'role': 'user',
@@ -290,6 +342,5 @@ if sent and user_q.strip():
 
     st.experimental_rerun()
 
-
-
+    # (il resto del layout chiude il right-pane)
     st.markdown('</div>', unsafe_allow_html=True)
