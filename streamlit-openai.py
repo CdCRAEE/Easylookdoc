@@ -45,35 +45,22 @@ try:
         azure_ad_token=st.session_state['aad_token']
     )
 
-# --- Azure Cognitive Search client con reuse ---
-search_key = (AZURE_SEARCH_ENDPOINT, AZURE_SEARCH_KEY, AZURE_SEARCH_INDEX)
-if 'search_client' not in st.session_state or st.session_state.get('search_key') != search_key:
-    if AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_KEY and AZURE_SEARCH_INDEX:
-        st.session_state['search_client'] = SearchClient(
-            endpoint=AZURE_SEARCH_ENDPOINT,
-            index_name=AZURE_SEARCH_INDEX,
-            credential=AzureKeyCredential(AZURE_SEARCH_KEY)
-        )
-        st.session_state['search_key'] = search_key
-
-search_client = st.session_state.get('search_client')
+    # --- Azure Cognitive Search client con reuse ---
+    search_key = (AZURE_SEARCH_ENDPOINT, AZURE_SEARCH_KEY, AZURE_SEARCH_INDEX)
+    if 'search_client' not in st.session_state or st.session_state.get('search_key') != search_key:
+        if AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_KEY and AZURE_SEARCH_INDEX:
+            st.session_state['search_client'] = SearchClient(
+                endpoint=AZURE_SEARCH_ENDPOINT,
+                index_name=AZURE_SEARCH_INDEX,
+                credential=AzureKeyCredential(AZURE_SEARCH_KEY)
+            )
+            st.session_state['search_key'] = search_key
+    
+    search_client = st.session_state.get('search_client')
 
 except Exception as e:
     st.error(f'Errore inizializzazione Azure OpenAI: {e}')
     st.stop()
-search_client = None
-try:
-    if AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_KEY and AZURE_SEARCH_INDEX:
-        search_client = SearchClient(
-            endpoint=AZURE_SEARCH_ENDPOINT,
-            index_name=AZURE_SEARCH_INDEX,
-            credential=AzureKeyCredential(AZURE_SEARCH_KEY)
-        )
-    else:
-        st.warning("⚠️ Configurazione Azure Search mancante (endpoint/chiave/indice).")
-except Exception as e:
-    st.error(f'Errore inizializzazione Azure Search: {e}')
-
 # --------- STATE ---------
 ss = st.session_state
 ss.setdefault('chat_history', [])  # [{'role','content','ts'}]
@@ -310,7 +297,7 @@ if st.session_state.get('do_process'):
         filter_expr = None
         if st.session_state.get('active_doc'):
             safe_name = st.session_state['active_doc'].replace("'", "''")
-            filter_expr = f"file_path eq '{safe_name}'"
+            filter_expr = f"file_name eq '{safe_name}'"
 
         if filter_expr:
             results = search_client.search(user_q_pending, top=3, filter=filter_expr)
@@ -321,8 +308,8 @@ if st.session_state.get('do_process'):
         for r in results:
             if "chunk" in r:
                 docs_text.append(r["chunk"])
-            if "file_path" in r:
-                references.append(r["file_path"])
+            if "file_name" in r:
+                references.append(r["file_name"])
 
         context = "\n\n".join(docs_text)
 
