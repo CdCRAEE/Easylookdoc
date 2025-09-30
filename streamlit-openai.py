@@ -161,7 +161,7 @@ with right:
     if nav == 'Leggi documento':
         st.subheader('📄 Scegli il documento')
 
-        # NEW: elenco documenti dall’indice tramite facets su file_name
+        # NEW: elenco documenti dall’indice tramite facets su document
         if not search_client:
             st.error("Azure Search non è configurato.")
         else:
@@ -169,10 +169,10 @@ with right:
                 results = search_client.search(
                     search_text="*",
                     top=0,
-                    facets=["file_name,count:1000"]  # richiede file_name facetable
+                    facets=["document,count:1000"]  # richiede document facetable
                 )
                 facets = results.get_facets() or {}
-                files = [f["value"] for f in facets.get("file_name", [])]
+                files = [f["value"] for f in facets.get("document", [])]
 
                 if not files:
                     st.info("Nessun documento trovato nell'indice.")
@@ -273,7 +273,7 @@ if st.session_state.get('do_process'):
         filter_expr = None
         if st.session_state.get('active_doc'):
             safe_name = st.session_state['active_doc'].replace("'", "''")
-            filter_expr = f"file_name eq '{safe_name}'"
+            filter_expr = f"document eq '{safe_name}'"
 
         if filter_expr:
             results = search_client.search(user_q_pending, top=3, filter=filter_expr)
@@ -284,8 +284,8 @@ if st.session_state.get('do_process'):
         for r in results:
             if "chunk" in r:
                 docs_text.append(r["chunk"])
-            if "file_name" in r:
-                references.append(r["file_name"])
+            if "document" in r:
+                references.append(r["document"])
 
         context = "\n\n".join(docs_text)
 
