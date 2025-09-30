@@ -138,20 +138,25 @@ with left:
     nav = labels[choice]
 
     # spaziatore -> loghi in basso
-    st.markdown("<div style='flex-grow:1'></div>", unsafe_allow_html=True)
-    colA, colB = st.columns(2)
-    with colA:
-        try:
-            st.image('images/logoRAEE.png', width=80)
-        except Exception:
-            st.markdown('')
-    with colB:
-        try:
-            st.image('images/logoNPA.png', width=80)
-        except Exception:
-            st.markdown('')
-
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown("""
+    <style>
+    .footer {
+        position: fixed;
+        left: 0;
+        bottom: 0;
+        width: 100%;
+        display: flex;
+        justify-content: space-around; /* distanzia i loghi */
+        background-color: white; /* o il colore del tuo sfondo */
+        padding: 10px 0;
+        z-index: 999;
+    }
+    </style>
+    <div class='footer'>
+        <img src='images/logoRAEE.png' width='80'>
+        <img src='images/logoNPA.png' width='80'>
+    </div>
+""", unsafe_allow_html=True)
 
 # ===== RIGHT PANE =====
 with right:
@@ -161,7 +166,7 @@ with right:
     if nav == 'Leggi documento':
         st.subheader('📄 Scegli il documento')
 
-        # NEW: elenco documenti dall’indice tramite facets su document
+        # NEW: elenco documenti dall’indice tramite facets su title
         if not search_client:
             st.error("Azure Search non è configurato.")
         else:
@@ -169,10 +174,10 @@ with right:
                 results = search_client.search(
                     search_text="*",
                     top=0,
-                    facets=["document,count:1000"]  # richiede document facetable
+                    facets=["title,count:1000"]  # richiede title facetable
                 )
                 facets = results.get_facets() or {}
-                files = [f["value"] for f in facets.get("document", [])]
+                files = [f["value"] for f in facets.get("title", [])]
 
                 if not files:
                     st.info("Nessun documento trovato nell'indice.")
