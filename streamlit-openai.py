@@ -26,16 +26,41 @@ AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX")
 # --------- CLIENTS ---------
 try:
     credential = ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
-    token = credential.get_token('https://cognitiveservices.azure.com/.default')
+
+    # --- AAD token reuse with 5-minute safety buffer ---
+    now_ts = datetime.now(timezone.utc).timestamp()
+    needs_token = True
+    if 'aad_token' in st.session_state and 'aad_exp' in st.session_state:
+        if now_ts < st.session_state['aad_exp'] - 300:
+            needs_token = False
+
+    if needs_token:
+        access = credential.get_token('https://cognitiveservices.azure.com/.default')
+        st.session_state['aad_token'] = access.token
+        st.session_state['aad_exp'] = access.expires_on
+
     client = AzureOpenAI(
         api_version=API_VERSION,
         azure_endpoint=AZURE_OPENAI_ENDPOINT,
-        api_key=token.token
+        azure_ad_token=st.session_state['aad_token']
     )
+
+# --- Azure Cognitive Search client con reuse ---
+search_key = (AZURE_SEARCH_ENDPOINT, AZURE_SEARCH_KEY, AZURE_SEARCH_INDEX)
+if 'search_client' not in st.session_state or st.session_state.get('search_key') != search_key:
+    if AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_KEY and AZURE_SEARCH_INDEX:
+        st.session_state['search_client'] = SearchClient(
+            endpoint=AZURE_SEARCH_ENDPOINT,
+            index_name=AZURE_SEARCH_INDEX,
+            credential=AzureKeyCredential(AZURE_SEARCH_KEY)
+        )
+        st.session_state['search_key'] = search_key
+
+search_client = st.session_state.get('search_client')
+
 except Exception as e:
     st.error(f'Errore inizializzazione Azure OpenAI: {e}')
     st.stop()
-
 search_client = None
 try:
     if AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_KEY and AZURE_SEARCH_INDEX:
@@ -113,8 +138,25 @@ div[role="radiogroup"] label[data-baseweb="radio"]{
 }
 div[role="radiogroup"] label[data-baseweb="radio"]:hover{background:#eef5ff;}
 label[data-baseweb="radio"]:has(input:checked){background:#e6f0ff;font-weight:600;}
-</style>
-"""
+
+/* Make the left pane a positioned container */
+.left-pane{
+  position: relative;
+  min-height: 100vh;
+}
+
+/* Footer anchored to bottom of the left pane only */
+.left-footer{
+  position: absolute;
+  left: 0; right: 0; bottom: 12px;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  padding: 8px 0;
+  background: transparent;
+}
+
+</style>"""
 st.markdown(CSS, unsafe_allow_html=True)
 
 # --------- LAYOUT ---------
@@ -137,27 +179,17 @@ with left:
     choice = st.radio('', list(labels.keys()), index=1)  # default: Chat
     nav = labels[choice]
 
-    # spaziatore -> loghi in basso
-    st.markdown("""
-    <style>
-    .footer {
-        position: fixed;
-        left: 0;
-        bottom: 0;
-        width: 100%;
-        display: flex;
-        justify-content: space-around; /* distanzia i loghi */
-        background-color: white; /* o il colore del tuo sfondo */
-        padding: 10px 0;
-        z-index: 999;
-    }
-    </style>
-    <div class='footer'>
-        <img src='images/logoRAEE.png' width='80'>
-        <img src='images/logoNPA.png' width='80'>
-    </div>
+    
+# Footer anchored to bottom of the left sidebar
+st.markdown("""
+<div class="left-footer">
+  <img src='images/logoRAEE.png' width='80'>
+  <img src='images/logoNPA.png' width='80'>
+</div>
 """, unsafe_allow_html=True)
 
+# chiudi il contenitore della left-pane
+st.markdown('</div>', unsafe_allow_html=True)
 # ===== RIGHT PANE =====
 with right:
     st.markdown('<div class="right-pane">', unsafe_allow_html=True)
@@ -166,7 +198,7 @@ with right:
     if nav == 'Leggi documento':
         st.subheader('📄 Scegli il documento')
 
-        # NEW: elenco documenti dall’indice tramite facets su title
+        # NEW: elenco documenti dall’indice tramite facets su file_name
         if not search_client:
             st.error("Azure Search non è configurato.")
         else:
@@ -174,10 +206,10 @@ with right:
                 results = search_client.search(
                     search_text="*",
                     top=0,
-                    facets=["title,count:1000"]  # richiede title facetable
+                    facets=["file_path,count:1000"]  # richiede file_path facetable
                 )
                 facets = results.get_facets() or {}
-                files = [f["value"] for f in facets.get("title", [])]
+                files = [f["value"] for f in facets.get("file_path", [])]
 
                 if not files:
                     st.info("Nessun documento trovato nell'indice.")
@@ -198,7 +230,7 @@ with right:
                     # Pulsante per azzerare il filtro (ricerca globale)
                     if st.button("🔄 Usa tutti i documenti (rimuovi filtro)"):
                         ss['active_doc'] = None
-                        st.experimental_rerun()
+                        st.rerun()
             except Exception as e:
                 st.error(f"Errore nel recupero dell'elenco documenti: {e}")
 
@@ -278,7 +310,7 @@ if st.session_state.get('do_process'):
         filter_expr = None
         if st.session_state.get('active_doc'):
             safe_name = st.session_state['active_doc'].replace("'", "''")
-            filter_expr = f"document eq '{safe_name}'"
+            filter_expr = f"file_path eq '{safe_name}'"
 
         if filter_expr:
             results = search_client.search(user_q_pending, top=3, filter=filter_expr)
@@ -289,8 +321,8 @@ if st.session_state.get('do_process'):
         for r in results:
             if "chunk" in r:
                 docs_text.append(r["chunk"])
-            if "document" in r:
-                references.append(r["document"])
+            if "file_path" in r:
+                references.append(r["file_path"])
 
         context = "\n\n".join(docs_text)
 
@@ -345,7 +377,7 @@ if 'sent' in locals() and sent and user_q.strip():
     st.session_state['pending_q'] = user_q
     st.session_state['do_process'] = True
 
-    st.experimental_rerun()
+    st.rerun()
 
     # (il resto del layout chiude il right-pane)
     st.markdown('</div>', unsafe_allow_html=True)
