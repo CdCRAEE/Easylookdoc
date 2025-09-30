@@ -20,17 +20,20 @@ AZURE_OPENAI_DEPLOYMENT = os.getenv('AZURE_OPENAI_DEPLOYMENT', 'gpt-4o-mini')
 AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")
 AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
 AZURE_SEARCH_INDEX = "azureblob-index"          # <== tuo indice
-FILENAME_FIELD = "metadata_storage_path"        # <== campo documento
+FILENAME_FIELD = "metadata_storage_path"        # <== campo documento (path completo)
 
-# helper per inserire spazi
+# --------- HELPERS ---------
 def spacer(n=1):
+    """Inserisce n righe vuote (come st.write('')) per creare spazio verticale."""
     for _ in range(n):
         st.write("")
 
 def safe_filter_eq(field: str, value: str) -> str:
+    """Crea una OData filter string con escape degli apici singoli."""
     if value is None:
         return None
-    return f"{field} eq '{value.replace(\"'\", \"''\")}'"
+    safe_value = value.replace("'", "''")  # escape OData per apice singolo
+    return f"{field} eq '{safe_value}'"
 
 def build_chat_messages(user_q: str, context_snippets: list[str]):
     sys_msg = {
@@ -41,14 +44,14 @@ def build_chat_messages(user_q: str, context_snippets: list[str]):
         )
     }
     ctx = "\n\n".join([f"- {s}" for s in context_snippets]) if context_snippets else "(nessun contesto)"
-    user_msg = {"role": "user","content": f"CONTEXTPASS:\n{ctx}\n\nDOMANDA:\n{user_q}"}
+    user_msg = {"role": "user", "content": f"CONTEXTPASS:\n{ctx}\n\nDOMANDA:\n{user_q}"}
     return [sys_msg, user_msg]
 
 # --------- CLIENTS ---------
 try:
     credential = ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
 
-    # reuse token
+    # --- AAD token reuse con buffer 5 minuti ---
     now_ts = datetime.now(timezone.utc).timestamp()
     needs_token = True
     if 'aad_token' in st.session_state and 'aad_exp' in st.session_state:
@@ -65,6 +68,7 @@ try:
         azure_ad_token=st.session_state['aad_token']
     )
 
+    # --- Azure Cognitive Search client con reuse ---
     search_key = (AZURE_SEARCH_ENDPOINT, AZURE_SEARCH_KEY, AZURE_SEARCH_INDEX)
     if 'search_client' not in st.session_state or st.session_state.get('search_key') != search_key:
         if AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_KEY and AZURE_SEARCH_INDEX:
@@ -76,6 +80,7 @@ try:
             st.session_state['search_key'] = search_key
 
     search_client = st.session_state.get('search_client')
+
 except Exception as e:
     st.error(f'Errore inizializzazione Azure OpenAI/Search: {e}')
     st.stop()
@@ -105,6 +110,7 @@ st.markdown("""
 # --------- LAYOUT ---------
 left, right = st.columns([0.28, 0.72], gap='large')
 
+# ===== LEFT PANE =====
 with left:
     st.markdown('<div class="left-pane">', unsafe_allow_html=True)
     try:
@@ -113,8 +119,9 @@ with left:
         st.markdown('')
 
     st.markdown('---')
-    labels = {"📤 Origine": "Leggi documento","💬 Chat": "Chat","🕒 Cronologia": "Cronologia"}
-    choice = st.radio('', list(labels.keys()), index=1)
+
+    labels = {"📤 Origine": "Leggi documento", "💬 Chat": "Chat", "🕒 Cronologia": "Cronologia"}
+    choice = st.radio('', list(labels.keys()), index=1)  # default: Chat
     nav = labels[choice]
 
     if nav == 'Leggi documento':
@@ -123,25 +130,33 @@ with left:
             st.warning("⚠️ Azure Search non configurato.")
         else:
             try:
-                res = search_client.search(search_text="*",
-                                           facets=[f"{FILENAME_FIELD},count:1000"],
-                                           top=0)
+                # facets sul campo documento
+                res = search_client.search(
+                    search_text="*",
+                    facets=[f"{FILENAME_FIELD},count:1000"],
+                    top=0
+                )
                 facets = list(res.get_facets().get(FILENAME_FIELD, []))
                 paths = [f['value'] for f in facets] if facets else []
+
                 if not paths:
-                    st.info("Nessun documento trovato.")
+                    st.info("Nessun documento trovato. Verifica che il campo sia 'Facetable' e che l'indice sia popolato.")
                 else:
                     import os
                     display = [os.path.basename(p.rstrip("/")) or p for p in paths]
+                    # mantieni selezione precedente se esiste
                     idx = paths.index(ss['active_doc']) if ss.get('active_doc') in paths else 0
                     selected_label = st.selectbox("Seleziona documento", display, index=idx)
                     selected_path = paths[display.index(selected_label)]
                     if selected_path != ss.get('active_doc'):
                         ss['active_doc'] = selected_path
                         st.success(f"Filtro attivo su: {selected_label}")
+
+                    # reset filtro
                     if st.button("🔄 Usa tutti i documenti (rimuovi filtro)"):
                         ss['active_doc'] = None
                         st.rerun()
+
             except Exception as e:
                 st.error(f"Errore nel recupero dell'elenco documenti: {e}")
 
@@ -156,6 +171,7 @@ with left:
                 st.markdown(m['content'])
                 st.markdown('---')
 
+    # loghi in basso (regola l'altezza come preferisci)
     spacer(3)
     colA, colB = st.columns([1, 1])
     with colA:
@@ -164,14 +180,20 @@ with left:
     with colB:
         try: st.image('images/logoNPA.png', width=80)
         except Exception: st.markdown('')
+
     st.markdown('</div>', unsafe_allow_html=True)
 
+# ===== RIGHT PANE =====
 with right:
     st.markdown('<div class="right-pane">', unsafe_allow_html=True)
     st.title('BENVENUTO !')
+
+    # --- CHAT UI ---
     st.markdown('<div class="chat-card">', unsafe_allow_html=True)
     st.markdown('<div class="chat-header">EasyLook.DOC Chat</div>', unsafe_allow_html=True)
     st.markdown('<div class="chat-body">', unsafe_allow_html=True)
+
+    # storico chat
     for m in ss['chat_history']:
         role_class = 'user' if m['role'] == 'user' else 'ai'
         st.markdown(
@@ -180,34 +202,42 @@ with right:
             f"<div class='meta'>{m['ts']}</div></div></div>",
             unsafe_allow_html=True
         )
-    st.markdown('</div>', unsafe_allow_html=True)
+
+    st.markdown('</div>', unsafe_allow_html=True)  # chiude chat-body
 
     with st.form("chat_form", clear_on_submit=True):
         user_q = st.text_area("Scrivi qui…", height=90,
                               placeholder="Fai una domanda sui documenti indicizzati…")
         submitted = st.form_submit_button("Invia")
         if submitted and user_q.strip():
-            ss['chat_history'].append({"role": "user",
-                                       "content": user_q.strip(),
-                                       "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+            # append utente
+            ss['chat_history'].append({
+                "role": "user",
+                "content": user_q.strip(),
+                "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
 
             # --- RICERCA NEL MOTORE ---
             context_snippets = []
             sources = []
             try:
                 if search_client:
-                    flt = None
-                    if ss.get('active_doc'):
-                        val = ss['active_doc'].replace("'", "''")
-                        flt = f"{FILENAME_FIELD} eq '{val}'"
-                    results = search_client.search(search_text=user_q,
-                                                  filter=flt,
-                                                  top=5,
-                                                  query_type="simple")
+                    flt = safe_filter_eq(FILENAME_FIELD, ss.get('active_doc')) if ss.get('active_doc') else None
+
+                    results = search_client.search(
+                        search_text=user_q,
+                        filter=flt,
+                        top=5,
+                        query_type="simple"  # se hai Semantic: query_type="semantic", semantic_configuration_name="default"
+                        # semantic_configuration_name="default"
+                    )
                     for r in results:
+                        # testo del chunk (adatta ai tuoi campi reali)
                         snippet = r.get('chunk') or r.get('content') or r.get('text')
                         if snippet:
                             context_snippets.append(str(snippet)[:400])
+
+                        # documento usato
                         fname = r.get(FILENAME_FIELD)
                         if fname and fname not in sources:
                             sources.append(fname)
@@ -227,20 +257,28 @@ with right:
                         max_tokens=900
                     )
                 ai_text = resp.choices[0].message.content if resp.choices else "(nessuna risposta)"
+
+                # aggiungi fonti (mostra solo basename per leggibilità)
                 if sources:
                     import os
                     shown = [os.path.basename(s.rstrip("/")) or s for s in sources]
                     uniq = list(dict.fromkeys(shown))
                     ai_text += "\n\n— 📎 Fonti: " + ", ".join(uniq[:6])
-                ss['chat_history'].append({"role": "assistant",
-                                           "content": ai_text,
-                                           "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+
+                ss['chat_history'].append({
+                    "role": "assistant",
+                    "content": ai_text,
+                    "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
             except Exception as e:
-                ss['chat_history'].append({"role": "assistant",
-                                           "content": f"Si è verificato un errore durante la generazione della risposta: {e}",
-                                           "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S")})
+                ss['chat_history'].append({
+                    "role": "assistant",
+                    "content": f"Si è verificato un errore durante la generazione della risposta: {e}",
+                    "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                })
+
             st.rerun()
 
     st.markdown('<div class="chat-footer">Suggerimento: seleziona un documento in “Origine” per filtrare le risposte.</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
-    st.markdown('</div>', unsafe_allow_html=True)
+    st.markdown('</div>', unsafe_allow_html=True)  # chiude chat-card
+    st.markdown('</div>', unsafe_allow_html=True)  # chiude right-pane
