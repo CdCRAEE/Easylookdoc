@@ -194,16 +194,17 @@ with right:
     st.markdown('<div class="chat-body">', unsafe_allow_html=True)
 
     # storico chat
-    for m in ss['chat_history']:
-        role_class = 'user' if m['role'] == 'user' else 'ai'
-        st.markdown(
-            f"<div class='msg-row'><div class='msg {role_class}'>"
-            f"{html.escape(m['content']).replace('\\n','<br>')}"
-            f"<div class='meta'>{m['ts']}</div></div></div>",
-            unsafe_allow_html=True
-        )
-
-    st.markdown('</div>', unsafe_allow_html=True)  # chiude chat-body
+for m in ss['chat_history']:
+    role_class = 'user' if m['role'] == 'user' else 'ai'
+    body = html.escape(m.get('content', ''))
+    body = body.replace('\n', '<br>')
+    meta = m.get('ts', '')
+    html_block = (
+        "<div class='msg-row'><div class='msg %s'>%s"
+        "<div class='meta'>%s</div></div></div>"
+        % (role_class, body, meta)
+    )
+    st.markdown(html_block, unsafe_allow_html=True) # chiude chat-body
 
     with st.form("chat_form", clear_on_submit=True):
         user_q = st.text_area("Scrivi qui…", height=90,
