@@ -97,49 +97,36 @@ ss.setdefault("nav", "Chat")   # default pannello destro
 # ========= STYLE =========
 st.markdown("""
 <style>
-/* Colonna sinistra sfondo #F6FDFC */
-[data-testid="stHorizontalBlock"] [data-testid="column"]:nth-of-type(1) > div:first-child {
-  background: #F6FDFC !important;
-  padding: 24px !important;
-  min-height: 100vh; /* tutta l'altezza finestra */
+/* Card azzurra a sinistra */
+.left-pane{
+  background:#F6FBFB;
+  padding:12px;
+  border-radius:12px;
+  border:1px solid #e5e7eb;
 }
-
-/* Colonna destra sfondo grigio chiaro */
-[data-testid="stHorizontalBlock"] [data-testid="column"]:nth-of-type(2) > div:first-child {
-  background: #f1f5f9 !important;  /* grigio chiaro */
-  padding: 24px !important;
-  min-height: 100vh;
+/* Nav menu custom (niente pallini) */
+.nav-item button[kind="secondary"]{
+  width:100%;
+  text-align:left;
+  border:0 !important;
+  background:#ffffff !important;
+  color:#2F98C7 !important;
+  border-radius:10px !important;
+  padding:10px 12px !important;
+  box-shadow:none !important;
 }
-
-/* Nav menu - selettori compatibili con DOM Streamlit */
-/* voci menu base */
-.nav-item .stButton > button {
-  width: 100%;
-  text-align: left;
-  background: #f8fafc !important;
-  color: #0f172a !important;
-  border: none !important;
-  border-radius: 10px !important;
-  padding: 10px 12px !important;
-  box-shadow: none !important;
+.nav-item:hover button[kind="secondary"]{
+  background:#2F98C7 !important; /* hover */
 }
-
-/* hover */
-.nav-item .stButton > button:hover {
-  background: #e2e8f0 !important;
-  border: none !important;
-}
-
-/* voce attiva menu – selettore più specifico */
-.nav-item.active button[kind="secondary"] {
-  background-color: #2F98C7 !important;
-  color: #ffffff !important;
-  font-weight: 600 !important;
-  border: none !important;
+.nav-item.active button[kind="secondary"]{
+  background:#2F98C7 !important; /* selezionato */
+  color:#ffffff !important;
+  font-weight:600 !important;
+  border:1px solid #2F98C7 !important;
 }
 
 /* evidenziazione risultati ricerca */
-mark { background: #fff3bf; padding: 0 .15em; border-radius: 3px; }
+mark { background: #F6FBFB; padding: 0 .15em; border-radius: 3px; }
 
 /* Chat (stile attuale tipo WhatsApp) */
 .chat-card{border:1px solid #e6eaf0;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(16,24,40,.04);}
@@ -260,6 +247,10 @@ with right:
 
         search_q = st.text_input("🔎 Cerca nella chat", value="", placeholder="Cerca messaggi…", label_visibility="visible")
 
+        spacer(2)
+        st.markdown("---")
+        spacer(1)
+
         # Scegli quali messaggi mostrare
         messages_to_show = ss["chat_history"]
         if search_q:
@@ -341,5 +332,6 @@ with right:
 
         st.markdown('<div class="chat-footer">Suggerimento: seleziona un documento in “Documenti” per filtrare le risposte.</div>', unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)  # chiude chat-card
+
 
 
