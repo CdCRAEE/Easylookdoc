@@ -100,13 +100,14 @@ st.markdown(
   padding: 0; /* lascia 12px se preferisci più aria */
 }
 
+/* Colonna destra con sfondo grigio */
 .right-pane{
   background:#f1f5f9;
   padding:20px;
   border-radius:12px;
 }
 
-/* stile base pulsanti nav */
+/* Nav menu (usiamo il DOM reale di Streamlit) */
 .nav-item .stButton > button{
   width:100%;
   text-align:left;
@@ -117,47 +118,17 @@ st.markdown(
   padding:10px 12px !important;
   box-shadow:none !important;
 }
-
-/* hover */
 .nav-item .stButton > button:hover{
   background:#e2e8f0 !important;
 }
-
-/* attivo */
 .nav-item.active .stButton > button{
-  background:#bfdbfe !important;   /* più scuro e visibile */
+  background:#bfdbfe !important;    /* attivo più scuro */
   color:#0c4a6e !important;
   font-weight:600 !important;
   border:1px solid #93c5fd !important;
 }
 
-
-/* stile base pulsanti nav */
-.nav-item .stButton > button{
-  width:100%;
-  text-align:left;
-  border:0 !important;
-  background:#f8fafc !important;
-  color:#0f172a !important;
-  border-radius:10px !important;
-  padding:10px 12px !important;
-  box-shadow:none !important;
-}
-
-/* hover */
-.nav-item .stButton > button:hover{
-  background:#e2e8f0 !important;
-}
-
-/* attivo */
-.nav-item.active .stButton > button{
-  background:#bfdbfe !important;   /* più scuro e visibile */
-  color:#0c4a6e !important;
-  font-weight:600 !important;
-  border:1px solid #93c5fd !important;
-}
-
-/* Chat card */
+/* Chat card (lasciamo bianca, come nella base) */
 .chat-card{border:1px solid #e6eaf0;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(16,24,40,.04);}
 .chat-header{padding:12px 16px;border-bottom:1px solid #eef2f7;font-weight:800;color:#1f2b3a;}
 .chat-body{padding:14px;max-height:70vh;overflow-y:auto;background:#fff;border-radius:0 0 14px 14px;}
@@ -174,9 +145,11 @@ st.markdown(
 # ========= LAYOUT =========
 left, right = st.columns([0.28, 0.72], gap="large")
 
-# ----- LEFT PANE (menu + loghi dentro card bianca) -----
+# ----- LEFT PANE (menu + loghi) -----
 with left:
     st.markdown('<div class="left-pane">', unsafe_allow_html=True)
+
+    # logo principale in alto
     try:
         st.image("images/Nuovo_Logo.png", width=200)
     except Exception:
@@ -184,7 +157,7 @@ with left:
 
     st.markdown("---")
 
-    # NAV senza pallini: 3 pulsanti con hover/active
+    # NAV: 3 pulsanti con hover/active
     nav_labels = [("📤 Origine", "Leggi documento"), ("💬 Chat", "Chat"), ("🕒 Cronologia", "Cronologia")]
     for label, value in nav_labels:
         active_cls = "nav-item active" if ss["nav"] == value else "nav-item"
@@ -194,34 +167,32 @@ with left:
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
-# loghi in basso con logoNPA allineato a destra
-spacer(10)
-colA, colB = st.columns([1, 1])
+    # loghi in basso con logoNPA allineato a destra
+    spacer(10)
+    colA, colB = st.columns([1, 1])
 
-with colA:
-    try:
-        st.image("images/logoRAEE.png", width=80)
-    except Exception:
-        st.markdown("")
+    with colA:
+        try:
+            st.image("images/logoRAEE.png", width=80)
+        except Exception:
+            st.markdown("")
 
-with colB:
-    try:
-        # allineamento a destra per logoNPA
-        st.markdown("<div style='text-align:right'>", unsafe_allow_html=True)
-        st.image("images/logoNPA.png", width=80)
-        st.markdown("</div>", unsafe_allow_html=True)
-    except Exception:
-        st.markdown("")
+    with colB:
+        try:
+            st.markdown("<div style='text-align:right'>", unsafe_allow_html=True)
+            st.image("images/logoNPA.png", width=80)
+            st.markdown("</div>", unsafe_allow_html=True)
+        except Exception:
+            st.markdown("")
 
     st.markdown("</div>", unsafe_allow_html=True)  # chiude left-pane
 
-# ----- RIGHT PANE (contenuti e grafica) -----
+# ----- RIGHT PANE (contenuti) -----
 with right:
+    # APRO il contenitore grigio e LO CHIUDO SOLO ALLA FINE
     st.markdown('<div class="right-pane">', unsafe_allow_html=True)
 
     st.title("BENVENUTO !")
-    # …contenuto della colonna destra…
-    
 
     # =================== ORIGINE ===================
     if ss["nav"] == "Leggi documento":
@@ -255,8 +226,6 @@ with right:
             except Exception as e:
                 st.error(f"Errore nel recupero dell'elenco documenti: {e}")
 
-	st.markdown('</div>', unsafe_allow_html=True)
-
     # =================== CRONOLOGIA ===================
     elif ss["nav"] == "Cronologia":
         st.subheader("🕒 Cronologia")
@@ -275,7 +244,7 @@ with right:
         st.markdown('<div class="chat-header">EasyLook.DOC Chat</div>', unsafe_allow_html=True)
         st.markdown('<div class="chat-body">', unsafe_allow_html=True)
 
-        # storico chat (niente f-string complesse)
+        # storico chat (no f-string complesse)
         for m in ss["chat_history"]:
             role_class = "user" if m["role"] == "user" else "ai"
             body = html.escape(m.get("content", "")).replace("\n", "<br>")
@@ -371,3 +340,6 @@ with right:
 
         st.markdown('<div class="chat-footer">Suggerimento: seleziona un documento in “Origine” per filtrare le risposte.</div>', unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)  # chiude chat-card
+
+    # CHIUDO il contenitore grigio SOLO ORA
+    st.markdown('</div>', unsafe_allow_html=True)
