@@ -1,5 +1,6 @@
 import os
 import html
+import pytz
 import streamlit as st
 from datetime import datetime, timezone
 from openai import AzureOpenAI
@@ -20,12 +21,16 @@ AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
 
 AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")
 AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
-AZURE_SEARCH_INDEX = "azureblob-index"            # <== il tuo indice
-FILENAME_FIELD = "metadata_storage_path"          # <== campo documento (path completo)
+AZURE_SEARCH_INDEX = "azureblob-index"            # indice
+FILENAME_FIELD = "metadata_storage_path"          # campo con path documento
+
+# ========= TIMEZONE =========
+local_tz = pytz.timezone("Europe/Rome")
+def ts_now_it():
+    return datetime.now(local_tz).strftime("%d/%m/%Y %H:%M:%S")
 
 # ========= HELPERS =========
 def spacer(n=1):
-    """Inserisce n righe vuote per creare spazio verticale."""
     for _ in range(n):
         st.write("")
 
@@ -97,7 +102,7 @@ st.markdown(
 .left-pane{
   background: transparent;
   border: none;
-  padding: 0; /* lascia 12px se preferisci più aria */
+  padding: 0;
 }
 
 /* Colonna destra con sfondo grigio */
@@ -107,7 +112,7 @@ st.markdown(
   border-radius:12px;
 }
 
-/* Nav menu (usiamo il DOM reale di Streamlit) */
+/* Nav menu - selettori compatibili con DOM Streamlit */
 .nav-item .stButton > button{
   width:100%;
   text-align:left;
@@ -128,7 +133,7 @@ st.markdown(
   border:1px solid #93c5fd !important;
 }
 
-/* Chat card (lasciamo bianca, come nella base) */
+/* Chat card (resta bianca come nella base) */
 .chat-card{border:1px solid #e6eaf0;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(16,24,40,.04);}
 .chat-header{padding:12px 16px;border-bottom:1px solid #eef2f7;font-weight:800;color:#1f2b3a;}
 .chat-body{padding:14px;max-height:70vh;overflow-y:auto;background:#fff;border-radius:0 0 14px 14px;}
@@ -189,7 +194,7 @@ with left:
 
 # ----- RIGHT PANE (contenuti) -----
 with right:
-    # APRO il contenitore grigio e LO CHIUDO SOLO ALLA FINE
+    # apro il contenitore grigio e lo chiudo solo alla fine
     st.markdown('<div class="right-pane">', unsafe_allow_html=True)
 
     st.title("BENVENUTO !")
@@ -244,7 +249,7 @@ with right:
         st.markdown('<div class="chat-header">EasyLook.DOC Chat</div>', unsafe_allow_html=True)
         st.markdown('<div class="chat-body">', unsafe_allow_html=True)
 
-        # storico chat (no f-string complesse)
+        # storico chat
         for m in ss["chat_history"]:
             role_class = "user" if m["role"] == "user" else "ai"
             body = html.escape(m.get("content", "")).replace("\n", "<br>")
@@ -257,86 +262,64 @@ with right:
 
         st.markdown("</div>", unsafe_allow_html=True)  # chiude chat-body
 
-        # --- FORM CHAT ---
-        with st.form("chat_form", clear_on_submit=True):
-            user_q = st.text_area(
-                "Scrivi qui…",
-                height=90,
-                placeholder="Fai una domanda sui documenti indicizzati…",
+        # --- INPUT CHAT: Enter invia direttamente ---
+        user_q = st.chat_input("Scrivi qui…")
+        if user_q and user_q.strip():
+            # append utente
+            ss["chat_history"].append(
+                {"role": "user", "content": user_q.strip(), "ts": ts_now_it()}
             )
-            submitted = st.form_submit_button("Invia")
 
-            if submitted and user_q.strip():
-                # append utente
+            # --- RICERCA NEL MOTORE ---
+            context_snippets, sources = [], []
+            try:
+                if not search_client:
+                    st.warning("Azure Search non disponibile. Risposta senza contesto.")
+                else:
+                    flt = safe_filter_eq(FILENAME_FIELD, ss.get("active_doc")) if ss.get("active_doc") else None
+                    results = search_client.search(
+                        search_text=user_q,
+                        filter=flt,
+                        top=5,
+                        query_type="simple",
+                    )
+                    for r in results:
+                        snippet = r.get("chunk") or r.get("content") or r.get("text")
+                        if snippet:
+                            context_snippets.append(str(snippet)[:400])
+                        fname = r.get(FILENAME_FIELD)
+                        if fname and fname not in sources:
+                            sources.append(fname)
+            except Exception as e:
+                st.error(f"Errore ricerca: {e}")
+
+            # --- CHIAMATA MODELLO ---
+            try:
+                messages = build_chat_messages(user_q, context_snippets)
+                with st.spinner("Sto scrivendo…"):
+                    resp = client.chat.completions.create(
+                        model=AZURE_OPENAI_DEPLOYMENT,
+                        messages=messages,
+                        temperature=0.2,
+                        max_tokens=900,
+                    )
+                ai_text = resp.choices[0].message.content if resp.choices else "(nessuna risposta)"
+
+                # Fonti (basename per leggibilità)
+                if sources:
+                    import os as _os
+                    shown = [_os.path.basename(s.rstrip("/")) or s for s in sources]
+                    uniq = list(dict.fromkeys(shown))
+                    ai_text += "\n\n— 📎 Fonti: " + ", ".join(uniq[:6])
+
                 ss["chat_history"].append(
-                    {
-                        "role": "user",
-                        "content": user_q.strip(),
-                        "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    }
+                    {"role": "assistant", "content": ai_text, "ts": ts_now_it()}
                 )
-
-                # --- RICERCA NEL MOTORE ---
-                context_snippets = []
-                sources = []
-                try:
-                    if not search_client:
-                        st.warning("Azure Search non disponibile. Risposta senza contesto.")
-                    else:
-                        flt = safe_filter_eq(FILENAME_FIELD, ss.get("active_doc")) if ss.get("active_doc") else None
-                        results = search_client.search(
-                            search_text=user_q,
-                            filter=flt,
-                            top=5,
-                            query_type="simple",  # per Semantic: query_type="semantic", semantic_configuration_name="default"
-                        )
-                        for r in results:
-                            snippet = r.get("chunk") or r.get("content") or r.get("text")
-                            if snippet:
-                                context_snippets.append(str(snippet)[:400])
-
-                            fname = r.get(FILENAME_FIELD)
-                            if fname and fname not in sources:
-                                sources.append(fname)
-                except Exception as e:
-                    st.error(f"Errore ricerca: {e}")
-
-                # --- CHIAMATA MODELLO ---
-                try:
-                    messages = build_chat_messages(user_q, context_snippets)
-                    with st.spinner("Sto scrivendo…"):
-                        resp = client.chat.completions.create(
-                            model=AZURE_OPENAI_DEPLOYMENT,
-                            messages=messages,
-                            temperature=0.2,
-                            max_tokens=900,
-                        )
-                    ai_text = resp.choices[0].message.content if resp.choices else "(nessuna risposta)"
-
-                    # Fonti (basename per leggibilità)
-                    if sources:
-                        import os as _os
-                        shown = [_os.path.basename(s.rstrip("/")) or s for s in sources]
-                        uniq = list(dict.fromkeys(shown))
-                        ai_text += "\n\n— 📎 Fonti: " + ", ".join(uniq[:6])
-
-                    ss["chat_history"].append(
-                        {
-                            "role": "assistant",
-                            "content": ai_text,
-                            "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        }
-                    )
-                except Exception as e:
-                    ss["chat_history"].append(
-                        {
-                            "role": "assistant",
-                            "content": f"Si è verificato un errore durante la generazione della risposta: {e}",
-                            "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        }
-                    )
-
-                st.rerun()
+            except Exception as e:
+                ss["chat_history"].append(
+                    {"role": "assistant", "content": f"Si è verificato un errore durante la generazione della risposta: {e}", "ts": ts_now_it()}
+                )
+            st.rerun()
 
         st.markdown('<div class="chat-footer">Suggerimento: seleziona un documento in “Origine” per filtrare le risposte.</div>', unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)  # chiude chat-card
