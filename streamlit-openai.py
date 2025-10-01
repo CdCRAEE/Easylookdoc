@@ -95,51 +95,51 @@ ss.setdefault("active_doc", None)
 ss.setdefault("nav", "Chat")   # default pannello destro
 
 # ========= STYLE =========
-st.markdown(
-    """
+st.markdown("""
 <style>
-/* Colonna sinistra senza riquadro */
-.left-pane{
-  background: transparent;
-  border: none;
-  padding: 0;
+/* Colonna sinistra sfondo #F6FDFC */
+[data-testid="stHorizontalBlock"] [data-testid="column"]:nth-of-type(1) > div:first-child {
+  background: #F6FDFC !important;
+  padding: 24px !important;
+  min-height: 100vh; /* tutta l'altezza finestra */
 }
 
-/* Colonna destra interamente grigia */
-div[data-testid="column"]:nth-child(2) {
-  background: #f1f5f9 !important;
-  padding: 24px;
-}
-
-/* Puoi lasciare .right-pane neutra (non la usiamo più come box) */
-.right-pane {
-  background: transparent;
-  padding: 0;
-  border-radius: 0;
+/* Colonna destra sfondo grigio chiaro */
+[data-testid="stHorizontalBlock"] [data-testid="column"]:nth-of-type(2) > div:first-child {
+  background: #f1f5f9 !important;  /* grigio chiaro */
+  padding: 24px !important;
+  min-height: 100vh;
 }
 
 /* Nav menu - selettori compatibili con DOM Streamlit */
+/* voci menu base */
 .nav-item .stButton > button {
   width: 100%;
-  text-align: left;                /* testo a sinistra */
-  background: #f8fafc !important;  /* sfondo base */
-  color: #0f172a !important;       /* testo base */
-  border: none !important;         /* niente bordino */
-  border-radius: 10px !important;  /* angoli arrotondati */
+  text-align: left;
+  background: #f8fafc !important;
+  color: #0f172a !important;
+  border: none !important;
+  border-radius: 10px !important;
   padding: 10px 12px !important;
-  box-shadow: none !important;     /* niente ombra */
+  box-shadow: none !important;
 }
+
+/* hover */
 .nav-item .stButton > button:hover {
-  background: #e2e8f0 !important;  /* hover grigio chiaro */
+  background: #e2e8f0 !important;
   border: none !important;
 }
-/* Voce attiva: grigio + testo bianco, nessun bordo */
-.nav-item.active .stButton > button {
-  background: #9ca3af !important;  /* grigio attivo */
+
+/* voce attiva menu – selettore più specifico */
+.nav-item.active button[kind="secondary"] {
+  background-color: #2F98C7 !important;
   color: #ffffff !important;
   font-weight: 600 !important;
   border: none !important;
 }
+
+/* evidenziazione risultati ricerca */
+mark { background: #fff3bf; padding: 0 .15em; border-radius: 3px; }
 
 /* Chat (stile attuale tipo WhatsApp) */
 .chat-card{border:1px solid #e6eaf0;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(16,24,40,.04);}
@@ -151,9 +151,8 @@ div[data-testid="column"]:nth-child(2) {
 .msg.ai{background:#F1F6FA;border-color:#F1F6FA;color:#1f2b3a;}
 .msg.user{background:#FDF6B4;border-color:#FDF6B4;color:#2b2b2b;margin-left:auto;}
 </style>
-""",
-    unsafe_allow_html=True,
-)
+""", unsafe_allow_html=True)
+
 
 # ========= LAYOUT =========
 left, right = st.columns([0.28, 0.72], gap="large")
@@ -198,7 +197,7 @@ with left:
 with right:
     st.title("BENVENUTO !")
 
-    # =================== ORIGINE ===================
+# =================== ORIGINE ===================
     if ss["nav"] == "Leggi documento":
         st.subheader("📤 Documento")
         if not search_client:
@@ -230,7 +229,7 @@ with right:
             except Exception as e:
                 st.error(f"Errore nel recupero dell'elenco documenti: {e}")
 
-    # =================== CRONOLOGIA ===================
+# =================== CRONOLOGIA ===================
     elif ss["nav"] == "Cronologia":
         st.subheader("🕒 Cronologia")
         if not ss["chat_history"]:
@@ -242,21 +241,41 @@ with right:
                 st.markdown(m["content"])
                 st.markdown("---")
 
-    # =================== CHAT ===================
+# =================== CHAT ===================
     else:  # 'Chat'
         st.markdown('<div class="chat-card">', unsafe_allow_html=True)
         st.markdown('<div class="chat-header">EasyLook.DOC Chat</div>', unsafe_allow_html=True)
         st.markdown('<div class="chat-body">', unsafe_allow_html=True)
 
-        # storico chat
-        for m in ss["chat_history"]:
+        # --- Barra di ricerca nella chat ---
+        import re
+
+        def _highlight(text: str, q: str) -> str:
+            """Evidenzia q in text (case-insensitive) preservando l'escape HTML e le nuove righe."""
+            if not q:
+                return html.escape(text).replace("\n", "<br>")
+            escaped = html.escape(text)
+            pat = re.compile(re.escape(q), re.IGNORECASE)
+            return pat.sub(lambda m: f"<mark>{m.group(0)}</mark>", escaped).replace("\n", "<br>")
+
+        search_q = st.text_input("🔎 Cerca nella chat", value="", placeholder="Cerca messaggi…", label_visibility="visible")
+
+        # Scegli quali messaggi mostrare
+        messages_to_show = ss["chat_history"]
+        if search_q:
+            sq = search_q.strip().lower()
+            messages_to_show = [m for m in ss["chat_history"] if sq in m.get("content","").lower()]
+            st.caption(f"Risultati: {len(messages_to_show)}")
+
+        # storico chat (filtrato se c'è una ricerca)
+        for m in messages_to_show:
             role_class = "user" if m["role"] == "user" else "ai"
-            body = html.escape(m.get("content", "")).replace("\n", "<br>")
+            body_html = _highlight(m.get("content", ""), search_q)
             meta = m.get("ts", "")
             html_block = (
                 "<div class='msg-row'><div class='msg %s'>%s"
                 "<div class='meta'>%s</div></div></div>"
-            ) % (role_class, body, meta)
+            ) % (role_class, body_html, meta)
             st.markdown(html_block, unsafe_allow_html=True)
 
         st.markdown("</div>", unsafe_allow_html=True)  # chiude chat-body
@@ -322,4 +341,5 @@ with right:
 
         st.markdown('<div class="chat-footer">Suggerimento: seleziona un documento in “Documenti” per filtrare le risposte.</div>', unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)  # chiude chat-card
+
 
