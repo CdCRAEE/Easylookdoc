@@ -2,35 +2,35 @@ import os
 import html
 import streamlit as st
 from datetime import datetime, timezone
-import pytz
-from typing import Optional
+from openai import AzureOpenAI
 from azure.identity import ClientSecretCredential
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
-from openai import AzureOpenAI
 
 st.set_page_config(page_title="EasyLook.DOC Chat", page_icon="💬", layout="wide")
 
-# CONFIG
+# ========= CONFIG =========
 TENANT_ID = os.getenv("AZURE_TENANT_ID")
 CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
 CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET")
+
 AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
 API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-05-01-preview")
 AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+
 AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")
 AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
-AZURE_SEARCH_INDEX = "azureblob-index"
-FILENAME_FIELD = "metadata_storage_path"
+AZURE_SEARCH_INDEX = "azureblob-index"            # <== il tuo indice
+FILENAME_FIELD = "metadata_storage_path"          # <== campo documento (path completo)
 
-local_tz = pytz.timezone("Europe/Rome")
-
-# HELPERS
-def spacer(n: int = 1):
+# ========= HELPERS =========
+def spacer(n=1):
+    """Inserisce n righe vuote per creare spazio verticale."""
     for _ in range(n):
         st.write("")
 
 def safe_filter_eq(field, value):
+    """OData filter: field eq 'value' con escape apici singoli."""
     if not value:
         return None
     safe_value = str(value).replace("'", "''")
@@ -39,135 +39,115 @@ def safe_filter_eq(field, value):
 def build_chat_messages(user_q, context_snippets):
     sys_msg = {
         "role": "system",
-        "content": (
-            "Sei un assistente che risponde SOLO in base ai documenti forniti nel contesto. "
-            "Se l'informazione non è presente, dillo chiaramente."
-        ),
+        "content": ("Sei un assistente che risponde SOLO in base ai documenti forniti nel contesto. "
+                    "Se l'informazione non è presente, dillo chiaramente."),
     }
     ctx = "\n\n".join(["- " + s for s in context_snippets]) if context_snippets else "(nessun contesto)"
     user_msg = {"role": "user", "content": f"CONTEXTPASS:\n{ctx}\n\nDOMANDA:\n{user_q}"}
     return [sys_msg, user_msg]
 
-# CLIENTS (lazy + cache)
-@st.cache_resource(show_spinner=False)
-def get_credential() -> ClientSecretCredential:
-    return ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
+# ========= CLIENTS =========
+try:
+    credential = ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
 
-@st.cache_resource(show_spinner=False)
-def get_search_client() -> Optional[SearchClient]:
-    if not (AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_KEY and AZURE_SEARCH_INDEX):
-        return None
-    return SearchClient(
-        endpoint=AZURE_SEARCH_ENDPOINT,
-        index_name=AZURE_SEARCH_INDEX,
-        credential=AzureKeyCredential(AZURE_SEARCH_KEY),
-    )
+    # Token reuse AAD (buffer 5 minuti)
+    now_ts = datetime.now(timezone.utc).timestamp()
+    refresh = True
+    if "aad_token" in st.session_state and "aad_exp" in st.session_state:
+        if now_ts < st.session_state["aad_exp"] - 300:
+            refresh = False
+    if refresh:
+        access = credential.get_token("https://cognitiveservices.azure.com/.default")
+        st.session_state["aad_token"] = access.token
+        st.session_state["aad_exp"] = access.expires_on
 
-@st.cache_resource(show_spinner=False)
-def get_aoai_client(aad_token: str) -> AzureOpenAI:
-    return AzureOpenAI(
+    client = AzureOpenAI(
         api_version=API_VERSION,
         azure_endpoint=AZURE_OPENAI_ENDPOINT,
-        azure_ad_token=aad_token,
+        azure_ad_token=st.session_state["aad_token"],
     )
 
-# Token AAD
-if "aad_token" not in st.session_state or "aad_exp" not in st.session_state:
-    cred = get_credential()
-    access = cred.get_token("https://cognitiveservices.azure.com/.default")
-    st.session_state["aad_token"] = access.token
-    st.session_state["aad_exp"] = access.expires_on
+    # SearchClient reuse
+    search_key_tuple = (AZURE_SEARCH_ENDPOINT, AZURE_SEARCH_KEY, AZURE_SEARCH_INDEX)
+    if "search_client" not in st.session_state or st.session_state.get("search_key") != search_key_tuple:
+        if AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_KEY and AZURE_SEARCH_INDEX:
+            st.session_state["search_client"] = SearchClient(
+                endpoint=AZURE_SEARCH_ENDPOINT,
+                index_name=AZURE_SEARCH_INDEX,
+                credential=AzureKeyCredential(AZURE_SEARCH_KEY),
+            )
+            st.session_state["search_key"] = search_key_tuple
+    search_client = st.session_state.get("search_client")
 
-# rinnovo con buffer 5 min
-now_ts = datetime.now(timezone.utc).timestamp()
-if now_ts >= st.session_state.get("aad_exp", 0) - 300:
-    cred = get_credential()
-    access = cred.get_token("https://cognitiveservices.azure.com/.default")
-    st.session_state["aad_token"] = access.token
-    st.session_state["aad_exp"] = access.expires_on
+except Exception as e:
+    st.error(f"Errore inizializzazione Azure OpenAI/Search: {e}")
+    st.stop()
 
-client = get_aoai_client(st.session_state["aad_token"])
-search_client = get_search_client()
-
-# STATE
+# ========= STATE =========
 ss = st.session_state
 ss.setdefault("chat_history", [])
 ss.setdefault("active_doc", None)
-ss.setdefault("nav", "Chat")
-ss.setdefault("theme", "chiaro")
-documents_cache = ss.get("documents_cache", [])
-last_update = ss.get("documents_cache_time")
+ss.setdefault("nav", "Chat")   # default pannello destro
 
-# STYLES
-is_dark = ss.get("theme") == "scuro"
-accent = "#2563eb"
+# ========= STYLE =========
 st.markdown(
-    f"""
+    """
 <style>
-:root {{
-  --bg: {"#0b1220" if is_dark else "#f8fafc"};
-  --panel: {"#0f172a" if is_dark else "#ffffff"};
-  --text: {"#e5e7eb" if is_dark else "#0f172a"};
-  --muted: {"#93a2b1" if is_dark else "#475569"};
-  --border: {"#1f2937" if is_dark else "#e5e7eb"};
-  --bubble-ai: {"#0e3a53" if is_dark else "#F1F6FA"};
-  --bubble-user: {"#3f3a12" if is_dark else "#FFF7CC"};
-  --right-bg: {"#1e293b" if is_dark else "#f1f5f9"};
-}}
-
-.left-pane{{ padding: 0; border: none; background: transparent; color: var(--text); }}
-.right-pane{{ background: var(--right-bg); padding: 20px; border-radius: 12px; }}
-
-.nav-item button[kind="secondary"]{{ width:100%; text-align:left; background: {"#111827" if is_dark else "#f8fafc"}!important; color: var(--text)!important; border-radius:12px!important; padding:10px 12px!important; }}
-.nav-item:hover button[kind="secondary"]{{ background:{"#0b1220" if is_dark else "#e2e8f0"}!important; }}
-.nav-item.active button[kind="secondary"]{{ background:{"#0b172a" if is_dark else "#cbd5e1"}!important; color: var(--text)!important; border:1px solid {accent}!important; box-shadow:0 0 0 2px rgba(37,99,235,.25); }}
-
-.chat-card{{ border:none; box-shadow:none; background:transparent; }}
-.chat-header{{ padding:12px 16px; font-weight:800; color:var(--text); display:flex; align-items:center; gap:.6rem; border:none; background:transparent; }}
-.chat-header .badge{{ font-size:11px; border:1px solid var(--border); padding:2px 8px; border-radius:999px; opacity:.9 }}
-.chat-body{{ padding:16px; max-height:66vh; overflow-y:auto; background:transparent; color:var(--text); }}
-
-.msg-row{{ display:flex; gap:10px; margin:10px 0; }}
-.msg{{ padding:12px 14px; border-radius:16px; border:1px solid var(--border); max-width:78%; line-height:1.5; font-size:15px; }}
-.msg .meta{{ font-size:11px; color:var(--muted); margin-top:6px; }}
-.msg.ai{{ background:var(--bubble-ai); color:{"#e5e7eb" if is_dark else "#1f2b3a"}; }}
-.msg.user{{ background:var(--bubble-user); color:{"#fef9c3" if is_dark else "#2b2b2b"}; margin-left:auto; }}
-
-.composer{{ position: sticky; bottom: 0; background: var(--panel); border-top:1px solid var(--border); padding: 12px 16px; border-bottom-left-radius:16px; border-bottom-right-radius:16px; }}
-
-.chips{{ display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }}
-.chip{{ font-size:12px; border:1px solid var(--border); padding:2px 8px; border-radius:999px; opacity:.85; }}
-
-.chat-footer{{ padding:10px 16px; color:var(--muted); }}
+/* Card bianca a sinistra */
+.left-pane{
+  background:#ffffff;
+  padding:12px;
+  border-radius:12px;
+  border:1px solid #e5e7eb;
+}
+/* Nav menu custom (niente pallini) */
+.nav-item button[kind="secondary"]{
+  width:100%;
+  text-align:left;
+  border:0 !important;
+  background:#f8fafc !important;
+  color:#0f172a !important;
+  border-radius:10px !important;
+  padding:10px 12px !important;
+  box-shadow:none !important;
+}
+.nav-item:hover button[kind="secondary"]{
+  background:#e2e8f0 !important; /* hover */
+}
+.nav-item.active button[kind="secondary"]{
+  background:#dbeafe !important; /* selezionato */
+  color:#0c4a6e !important;
+  font-weight:600 !important;
+  border:1px solid #bfdbfe !important;
+}
+/* Chat card */
+.chat-card{border:1px solid #e6eaf0;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(16,24,40,.04);}
+.chat-header{padding:12px 16px;border-bottom:1px solid #eef2f7;font-weight:800;color:#1f2b3a;}
+.chat-body{padding:14px;max-height:70vh;overflow-y:auto;background:#fff;border-radius:0 0 14px 14px;}
+.msg-row{display:flex;gap:10px;margin:8px 0;}
+.msg{padding:10px 14px;border-radius:16px;border:1px solid;max-width:78%;line-height:1.45;font-size:15px;}
+.msg .meta{font-size:11px;opacity:.7;margin-top:6px;}
+.msg.ai{background:#F1F6FA;border-color:#F1F6FA;color:#1f2b3a;}
+.msg.user{background:#FDF6B4;border-color:#FDF6B4;color:#2b2b2b;margin-left:auto;}
 </style>
 """,
     unsafe_allow_html=True,
 )
 
-# LAYOUT
+# ========= LAYOUT =========
 left, right = st.columns([0.28, 0.72], gap="large")
 
-# LEFT PANE
+# ----- LEFT PANE (menu + loghi dentro card bianca) -----
 with left:
     st.markdown('<div class="left-pane">', unsafe_allow_html=True)
-    col_logo, col_toggle = st.columns([1, 1])
-    with col_logo:
-        try:
-            st.image("images/Nuovo_Logo.png", width=180)
-        except Exception:
-            st.markdown("")
-    with col_toggle:
-        st.write("")
-        st.selectbox(
-            "Tema",
-            options=["chiaro", "scuro"],
-            index=1 if is_dark else 0,
-            key="theme",
-            help="Cambia il tema della UI",
-        )
-        if ss.get("theme") != ("scuro" if is_dark else "chiaro"):
-            st.rerun()
+    try:
+        st.image("images/Nuovo_Logo.png", width=200)
+    except Exception:
+        st.markdown("")
+
     st.markdown("---")
+
+    # NAV senza pallini: 3 pulsanti con hover/active
     nav_labels = [("📤 Origine", "Leggi documento"), ("💬 Chat", "Chat"), ("🕒 Cronologia", "Cronologia")]
     for label, value in nav_labels:
         active_cls = "nav-item active" if ss["nav"] == value else "nav-item"
@@ -176,63 +156,60 @@ with left:
             ss["nav"] = value
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
 
-# RIGHT PANE
+    # loghi in basso
+    spacer(3)
+    colA, colB = st.columns([1, 1])
+    with colA:
+        try:
+            st.image("images/logoRAEE.png", width=80)
+        except Exception:
+            st.markdown("")
+    with colB:
+        try:
+            st.image("images/logoNPA.png", width=80)
+        except Exception:
+            st.markdown("")
+
+    st.markdown("</div>", unsafe_allow_html=True)  # chiude left-pane
+
+# ----- RIGHT PANE (contenuti) -----
 with right:
-    st.markdown('<div class="right-pane">', unsafe_allow_html=True)
     st.title("BENVENUTO !")
 
-    # ORIGINE
+    # =================== ORIGINE ===================
     if ss["nav"] == "Leggi documento":
         st.subheader("📤 Origine (indice)")
         if not search_client:
             st.warning("⚠️ Azure Search non configurato.")
         else:
-            if documents_cache:
-                paths = documents_cache
-                import os as _os
-                display = [_os.path.basename(p.rstrip("/")) or p for p in paths]
-                idx = paths.index(ss["active_doc"]) if ss.get("active_doc") in paths else 0
-                selected_label = st.selectbox("Seleziona documento", display, index=idx)
-                selected_path = paths[display.index(selected_label)]
-                cols = st.columns([1,1,2])
-                with cols[0]:
-                    if st.button("✅ Applica filtro"):
+            try:
+                res = search_client.search(
+                    search_text="*",
+                    facets=[f"{FILENAME_FIELD},count:1000"],
+                    top=0,
+                )
+                facets = list(res.get_facets().get(FILENAME_FIELD, []))
+                paths = [f["value"] for f in facets] if facets else []
+
+                if not paths:
+                    st.info("Nessun documento trovato. Verifica che il campo sia 'Facetable' e che l'indice sia popolato.")
+                else:
+                    import os as _os
+                    display = [_os.path.basename(p.rstrip("/")) or p for p in paths]
+                    idx = paths.index(ss["active_doc"]) if ss.get("active_doc") in paths else 0
+                    selected_label = st.selectbox("Seleziona documento", display, index=idx)
+                    selected_path = paths[display.index(selected_label)]
+                    if selected_path != ss.get("active_doc"):
                         ss["active_doc"] = selected_path
                         st.success(f"Filtro attivo su: {selected_label}")
-                with cols[1]:
-                    if st.button("🔄 Rimuovi filtro"):
+                    if st.button("🔄 Usa tutti i documenti (rimuovi filtro)"):
                         ss["active_doc"] = None
-                        st.experimental_rerun()
-                if ss.get("active_doc"):
-                    st.caption(f"Documento attivo: **{_os.path.basename(ss['active_doc'])}**")
-                colb1, colb2 = st.columns([1,2])
-                with colb1:
-                    if st.button("📥 Aggiorna elenco documenti"):
-                        ss["documents_cache"] = []
-                        st.experimental_rerun()
-                with colb2:
-                    if last_update:
-                        st.caption(f"Elenco aggiornato alle {last_update}")
-            else:
-                if st.button("📥 Carica elenco documenti"):
-                    from azure.search.documents.models import QueryType
-                    res = search_client.search(
-                        search_text="*",
-                        facets=[f"{FILENAME_FIELD},count:200"],
-                        top=0,
-                        query_type=QueryType.SIMPLE,
-                    )
-                    facets = list(res.get_facets().get(FILENAME_FIELD, []))
-                    paths = [f["value"] for f in facets] if facets else []
-                    ss["documents_cache"] = paths
-                    ss["documents_cache_time"] = datetime.now(local_tz).strftime("%d/%m/%Y %H:%M:%S")
-                    st.experimental_rerun()
-                else:
-                    st.info("Premi il pulsante sopra per caricare l'elenco dei documenti.")
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Errore nel recupero dell'elenco documenti: {e}")
 
-    # CRONOLOGIA
+    # =================== CRONOLOGIA ===================
     elif ss["nav"] == "Cronologia":
         st.subheader("🕒 Cronologia")
         if not ss["chat_history"]:
@@ -244,12 +221,13 @@ with right:
                 st.markdown(m["content"])
                 st.markdown("---")
 
-    # CHAT
-    else:
+    # =================== CHAT ===================
+    else:  # 'Chat'
         st.markdown('<div class="chat-card">', unsafe_allow_html=True)
-        st.markdown('<div class="chat-header">💬 EasyLook.DOC Chat <span class="badge">alpha</span></div>', unsafe_allow_html=True)
+        st.markdown('<div class="chat-header">EasyLook.DOC Chat</div>', unsafe_allow_html=True)
         st.markdown('<div class="chat-body">', unsafe_allow_html=True)
 
+        # storico chat (niente f-string complesse)
         for m in ss["chat_history"]:
             role_class = "user" if m["role"] == "user" else "ai"
             body = html.escape(m.get("content", "")).replace("\n", "<br>")
@@ -260,90 +238,88 @@ with right:
             ) % (role_class, body, meta)
             st.markdown(html_block, unsafe_allow_html=True)
 
-        # scroll automatico
-        st.markdown(
-            """
-            <script>
-            var chatBody = window.parent.document.querySelectorAll('.chat-body')[0];
-            if (chatBody) {
-                chatBody.scrollTop = chatBody.scrollHeight;
-            }
-            </script>
-            """,
-            unsafe_allow_html=True
-        )
+        st.markdown("</div>", unsafe_allow_html=True)  # chiude chat-body
 
-        st.markdown('</div>', unsafe_allow_html=True)  # chiude chat-body
-
-        # Composer sticky con chat_input
-        st.markdown('<div class="composer">', unsafe_allow_html=True)
-        user_q = st.chat_input("Scrivi qui…")
-        if user_q and user_q.strip():
-            ss["chat_history"].append(
-                {
-                    "role": "user",
-                    "content": user_q.strip(),
-                    "ts": datetime.now(local_tz).strftime("%d/%m/%Y %H:%M:%S"),
-                }
+        # --- FORM CHAT ---
+        with st.form("chat_form", clear_on_submit=True):
+            user_q = st.text_area(
+                "Scrivi qui…",
+                height=90,
+                placeholder="Fai una domanda sui documenti indicizzati…",
             )
-            context_snippets = []
-            sources = []
-            try:
-                if not search_client:
-                    st.warning("Azure Search non disponibile. Risposta senza contesto.")
-                else:
-                    from azure.search.documents.models import QueryType
-                    flt = safe_filter_eq(FILENAME_FIELD, ss.get("active_doc")) if ss.get("active_doc") else None
-                    results = search_client.search(
-                        search_text=user_q,
-                        filter=flt,
-                        top=3,
-                        query_type=QueryType.SIMPLE,
-                    )
-                    for r in results:
-                        snippet = r.get("chunk") or r.get("content") or r.get("text")
-                        if snippet:
-                            context_snippets.append(str(snippet)[:400])
-                        fname = r.get(FILENAME_FIELD)
-                        if fname and fname not in sources:
-                            sources.append(fname)
-            except Exception as e:
-                st.error(f"Errore ricerca: {e}")
+            submitted = st.form_submit_button("Invia")
 
-            try:
-                messages = build_chat_messages(user_q, context_snippets)
-                with st.spinner("Sto scrivendo…"):
-                    resp = client.chat.completions.create(
-                        model=AZURE_OPENAI_DEPLOYMENT,
-                        messages=messages,
-                        temperature=0.2,
-                        max_tokens=900,
-                    )
-                ai_text = resp.choices[0].message.content if resp.choices else "(nessuna risposta)"
-                if sources:
-                    import os as _os
-                    shown = [_os.path.basename(s.rstrip("/")) or s for s in sources]
-                    uniq = list(dict.fromkeys(shown))
-                    chips = "".join([f"<span class='chip'>📎 {html.escape(s)}</span>" for s in uniq[:8]])
-                    ai_text += f"\n\n<div class='chips'>{chips}</div>"
+            if submitted and user_q.strip():
+                # append utente
                 ss["chat_history"].append(
                     {
-                        "role": "assistant",
-                        "content": ai_text,
-                        "ts": datetime.now(local_tz).strftime("%d/%m/%Y %H:%M:%S"),
+                        "role": "user",
+                        "content": user_q.strip(),
+                        "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                     }
                 )
-            except Exception as e:
-                ss["chat_history"].append(
-                    {
-                        "role": "assistant",
-                        "content": f"Si è verificato un errore durante la generazione della risposta: {e}",
-                        "ts": datetime.now(local_tz).strftime("%d/%m/%Y %H:%M:%S"),
-                    }
-                )
-            st.experimental_rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown('<div class="chat-footer">Suggerimento: usa “Origine” per filtrare le risposte. Tema attuale: <b>' + (ss.get('theme') or 'chiaro') + '</b>.</div>', unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
 
-    st.markdown('</div>', unsafe_allow_html=True)
+                # --- RICERCA NEL MOTORE ---
+                context_snippets = []
+                sources = []
+                try:
+                    if not search_client:
+                        st.warning("Azure Search non disponibile. Risposta senza contesto.")
+                    else:
+                        flt = safe_filter_eq(FILENAME_FIELD, ss.get("active_doc")) if ss.get("active_doc") else None
+                        results = search_client.search(
+                            search_text=user_q,
+                            filter=flt,
+                            top=5,
+                            query_type="simple",  # per Semantic: query_type="semantic", semantic_configuration_name="default"
+                        )
+                        for r in results:
+                            snippet = r.get("chunk") or r.get("content") or r.get("text")
+                            if snippet:
+                                context_snippets.append(str(snippet)[:400])
+
+                            fname = r.get(FILENAME_FIELD)
+                            if fname and fname not in sources:
+                                sources.append(fname)
+                except Exception as e:
+                    st.error(f"Errore ricerca: {e}")
+
+                # --- CHIAMATA MODELLO ---
+                try:
+                    messages = build_chat_messages(user_q, context_snippets)
+                    with st.spinner("Sto scrivendo…"):
+                        resp = client.chat.completions.create(
+                            model=AZURE_OPENAI_DEPLOYMENT,
+                            messages=messages,
+                            temperature=0.2,
+                            max_tokens=900,
+                        )
+                    ai_text = resp.choices[0].message.content if resp.choices else "(nessuna risposta)"
+
+                    # Fonti (basename per leggibilità)
+                    if sources:
+                        import os as _os
+                        shown = [_os.path.basename(s.rstrip("/")) or s for s in sources]
+                        uniq = list(dict.fromkeys(shown))
+                        ai_text += "\n\n— 📎 Fonti: " + ", ".join(uniq[:6])
+
+                    ss["chat_history"].append(
+                        {
+                            "role": "assistant",
+                            "content": ai_text,
+                            "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        }
+                    )
+                except Exception as e:
+                    ss["chat_history"].append(
+                        {
+                            "role": "assistant",
+                            "content": f"Si è verificato un errore durante la generazione della risposta: {e}",
+                            "ts": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        }
+                    )
+
+                st.rerun()
+
+        st.markdown('<div class="chat-footer">Suggerimento: seleziona un documento in “Origine” per filtrare le risposte.</div>', unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)  # chiude chat-card
