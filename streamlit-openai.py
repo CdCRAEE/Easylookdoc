@@ -93,13 +93,19 @@ ss.setdefault("nav", "Chat")   # default pannello destro
 st.markdown(
     """
 <style>
-/* Card bianca a sinistra */
+/* Colonna sinistra senza riquadro */
 .left-pane{
-  background:#ffffff;
-  padding:12px;
-  border-radius:12px;
-  border:1px solid #e5e7eb;
+  background: transparent;
+  border: none;
+  padding: 0; /* lascia 12px se preferisci più aria */
 }
+
+.right-pane{
+  background:#f1f5f9;
+  padding:20px;
+  border-radius:12px;
+}
+
 /* Nav menu custom (niente pallini) */
 .nav-item button[kind="secondary"]{
   width:100%;
@@ -115,10 +121,10 @@ st.markdown(
   background:#e2e8f0 !important; /* hover */
 }
 .nav-item.active button[kind="secondary"]{
-  background:#dbeafe !important; /* selezionato */
+  background:#bfdbfe !important; /* selezionato */
   color:#0c4a6e !important;
   font-weight:600 !important;
-  border:1px solid #bfdbfe !important;
+  border:1px solid #93c5fd !important;
 }
 /* Chat card */
 .chat-card{border:1px solid #e6eaf0;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(16,24,40,.04);}
@@ -158,7 +164,7 @@ with left:
         st.markdown("</div>", unsafe_allow_html=True)
 
     # loghi in basso
-    spacer(3)
+    spacer(6)
     colA, colB = st.columns([1, 1])
     with colA:
         try:
@@ -173,9 +179,14 @@ with left:
 
     st.markdown("</div>", unsafe_allow_html=True)  # chiude left-pane
 
-# ----- RIGHT PANE (contenuti) -----
+# ----- RIGHT PANE (contenuti e grafica) -----
 with right:
+    st.markdown('<div class="right-pane">', unsafe_allow_html=True)
+
     st.title("BENVENUTO !")
+    # …contenuto della colonna destra…
+
+    st.markdown('</div>', unsafe_allow_html=True)
 
     # =================== ORIGINE ===================
     if ss["nav"] == "Leggi documento":
