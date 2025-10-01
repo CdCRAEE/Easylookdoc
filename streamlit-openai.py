@@ -93,40 +93,60 @@ ss.setdefault("nav", "Chat")
 # ========= STYLE =========
 st.markdown("""
 <style>
-/* Wrapper colonne sinistra/destra */
-.left-bg {
-  background:#F6FDFC;
-  padding:24px;
-  min-height:100vh;
-}
-.right-bg {
-  background:#f1f5f9;
-  padding:24px;
-  min-height:100vh;
-}
-
-/* Nav menu */
-.nav-item button[kind="secondary"]{
-  width:100%;
-  text-align:left;
-  border:0 !important;
-  background:#ffffff !important;
-  color:#2F98C7 !important;
-  border-radius:10px !important;
-  padding:10px 12px !important;
-  box-shadow:none !important;
-}
-.nav-item:hover button[kind="secondary"]{
-  background:#2F98C7 !important; /* hover */
-}
-.nav-item.active button[kind="secondary"]{
-  background:#2F98C7 !important; /* selezionato */
-  color:#ffffff !important;
-  font-weight:600 !important;
-  border:1px solid #2F98C7 !important;
+/* Sfondo pagina diviso: sinistra #F6FDFC (28%), destra #f1f5f9 (72%) */
+.stApp::before{
+  content:"";
+  position:fixed;
+  inset:0;
+  z-index:-1;
+  background: linear-gradient(to right,
+    #F6FDFC 0%, #F6FDFC 28%,
+    #f1f5f9 28%, #f1f5f9 100%);
 }
 
-mark { background: #F6FBFB; padding: 0 .15em; border-radius: 3px; }
+/* Container centrale trasparente */
+.block-container { background: transparent !important; padding-top:12px; padding-bottom:12px; }
+
+/* Padding dentro le colonne */
+[data-testid="stHorizontalBlock"] [data-testid="column"] > div:first-child { padding: 12px; }
+
+/* Menu */
+/* ===== NAV MENU (definitivo) ===== */
+
+/* Base: niente bordini, testo a sinistra, full-width */
+.nav-item .stButton > button,
+.nav-item .stButton [data-testid="baseButton-secondary"] {
+  width: 100%;
+  display: block;
+  text-align: left;                 /* (2) allineate a sinistra */
+  background: #ffffff !important;
+  color: #2F98C7 !important;
+  border: none !important;          /* (1) togli i bordini */
+  box-shadow: none !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
+}
+
+/* Hover (solo feedback) */
+.nav-item .stButton > button:hover,
+.nav-item .stButton [data-testid="baseButton-secondary"]:hover {
+  background: #e6f3fb !important;   /* azzurrino chiaro */
+  color: #2F98C7 !important;
+  border: none !important;
+}
+
+/* Attivo: sfondo BLU pieno, testo bianco */
+.nav-item.active .stButton > button,
+.nav-item.active .stButton [data-testid="baseButton-secondary"] {
+  background: #2F98C7 !important;   /* (3) blu attivo */
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  border: none !important;          /* niente bordini anche da attivo */
+  box-shadow: none !important;
+}
+
+/* evidenziazione ricerca */
+mark { background:#fff3bf; padding:0 .15em; border-radius:3px; }
 
 /* Chat */
 .chat-card{border:1px solid #e6eaf0;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(16,24,40,.04);}
@@ -145,11 +165,11 @@ left, right = st.columns([0.28, 0.72], gap="large")
 
 # ----- LEFT PANE -----
 with left:
-    st.markdown('<div class="left-bg">', unsafe_allow_html=True)
     try:
         st.image("images/Nuovo_Logo.png", width=200)
     except Exception:
         st.markdown("")
+
     st.markdown("---")
 
     nav_labels = [("📤 Documenti", "Leggi documento"), ("💬 Chat", "Chat"), ("🕒 Cronologia", "Cronologia")]
@@ -171,19 +191,17 @@ with left:
         """,
         unsafe_allow_html=True
     )
-    st.markdown("</div>", unsafe_allow_html=True)
 
 # ----- RIGHT PANE -----
 with right:
-    st.markdown('<div class="right-bg">', unsafe_allow_html=True)
     st.title("BENVENUTO !")
 
     if ss["nav"] == "Leggi documento":
-        # … come prima …
+        # il tuo codice documenti qui
         pass
 
     elif ss["nav"] == "Cronologia":
-        # … come prima …
+        # il tuo codice cronologia qui
         pass
 
     else:  # 'Chat'
@@ -230,5 +248,3 @@ with right:
 
         st.markdown('<div class="chat-footer">Suggerimento: seleziona un documento in “Documenti” per filtrare le risposte.</div>', unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
-
-    st.markdown("</div>", unsafe_allow_html=True)  # chiude right-bg
