@@ -106,8 +106,8 @@ st.markdown(
   border-radius:12px;
 }
 
-/* Nav menu custom (niente pallini) */
-.nav-item button[kind="secondary"]{
+/* stile base pulsanti nav */
+.nav-item .stButton > button{
   width:100%;
   text-align:left;
   border:0 !important;
@@ -117,15 +117,46 @@ st.markdown(
   padding:10px 12px !important;
   box-shadow:none !important;
 }
-.nav-item:hover button[kind="secondary"]{
-  background:#e2e8f0 !important; /* hover */
+
+/* hover */
+.nav-item .stButton > button:hover{
+  background:#e2e8f0 !important;
 }
-.nav-item.active button[kind="secondary"]{
-  background:#bfdbfe !important; /* selezionato */
+
+/* attivo */
+.nav-item.active .stButton > button{
+  background:#bfdbfe !important;   /* più scuro e visibile */
   color:#0c4a6e !important;
   font-weight:600 !important;
   border:1px solid #93c5fd !important;
 }
+
+
+/* stile base pulsanti nav */
+.nav-item .stButton > button{
+  width:100%;
+  text-align:left;
+  border:0 !important;
+  background:#f8fafc !important;
+  color:#0f172a !important;
+  border-radius:10px !important;
+  padding:10px 12px !important;
+  box-shadow:none !important;
+}
+
+/* hover */
+.nav-item .stButton > button:hover{
+  background:#e2e8f0 !important;
+}
+
+/* attivo */
+.nav-item.active .stButton > button{
+  background:#bfdbfe !important;   /* più scuro e visibile */
+  color:#0c4a6e !important;
+  font-weight:600 !important;
+  border:1px solid #93c5fd !important;
+}
+
 /* Chat card */
 .chat-card{border:1px solid #e6eaf0;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(16,24,40,.04);}
 .chat-header{padding:12px 16px;border-bottom:1px solid #eef2f7;font-weight:800;color:#1f2b3a;}
@@ -163,19 +194,24 @@ with left:
             st.rerun()
         st.markdown("</div>", unsafe_allow_html=True)
 
-    # loghi in basso
-    spacer(6)
-    colA, colB = st.columns([1, 1])
-    with colA:
-        try:
-            st.image("images/logoRAEE.png", width=80)
-        except Exception:
-            st.markdown("")
-    with colB:
-        try:
-            st.image("images/logoNPA.png", width=80)
-        except Exception:
-            st.markdown("")
+# loghi in basso con logoNPA allineato a destra
+spacer(10)
+colA, colB = st.columns([1, 1])
+
+with colA:
+    try:
+        st.image("images/logoRAEE.png", width=80)
+    except Exception:
+        st.markdown("")
+
+with colB:
+    try:
+        # allineamento a destra per logoNPA
+        st.markdown("<div style='text-align:right'>", unsafe_allow_html=True)
+        st.image("images/logoNPA.png", width=80)
+        st.markdown("</div>", unsafe_allow_html=True)
+    except Exception:
+        st.markdown("")
 
     st.markdown("</div>", unsafe_allow_html=True)  # chiude left-pane
 
@@ -185,8 +221,7 @@ with right:
 
     st.title("BENVENUTO !")
     # …contenuto della colonna destra…
-
-    st.markdown('</div>', unsafe_allow_html=True)
+    
 
     # =================== ORIGINE ===================
     if ss["nav"] == "Leggi documento":
@@ -219,6 +254,8 @@ with right:
                         st.rerun()
             except Exception as e:
                 st.error(f"Errore nel recupero dell'elenco documenti: {e}")
+
+	st.markdown('</div>', unsafe_allow_html=True)
 
     # =================== CRONOLOGIA ===================
     elif ss["nav"] == "Cronologia":
