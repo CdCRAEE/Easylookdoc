@@ -1,6 +1,4 @@
-import os
-import html
-import pytz
+import os, html
 import streamlit as st
 from datetime import datetime, timezone
 from openai import AzureOpenAI
@@ -8,269 +6,276 @@ from azure.identity import ClientSecretCredential
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 
-st.set_page_config(page_title="EasyLook.DOC Chat", page_icon="💬", layout="wide")
+st.set_page_config(page_title='EasyLook.DOC Chat', page_icon='💬', layout='wide')
 
-# ========= CONFIG =========
-TENANT_ID = os.getenv("AZURE_TENANT_ID")
-CLIENT_ID = os.getenv("AZURE_CLIENT_ID")
-CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET")
+# --------- CONFIG ---------
+TENANT_ID = os.getenv('AZURE_TENANT_ID')
+CLIENT_ID = os.getenv('AZURE_CLIENT_ID')
+CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET')
 
-AZURE_OPENAI_ENDPOINT = os.getenv("AZURE_OPENAI_ENDPOINT")
-API_VERSION = os.getenv("AZURE_OPENAI_API_VERSION", "2024-05-01-preview")
-AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "gpt-4o-mini")
+AZURE_OPENAI_ENDPOINT = os.getenv('AZURE_OPENAI_ENDPOINT')
+DEPLOYMENT_NAME = os.getenv('AZURE_OPENAI_DEPLOYMENT')
+API_VERSION = os.getenv('AZURE_OPENAI_API_VERSION', '2024-05-01-preview')
 
+# --- CONFIGURAZIONE SEARCH ---
 AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")
 AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
-AZURE_SEARCH_INDEX = "azureblob-index"            # indice
-FILENAME_FIELD = "metadata_storage_path"          # campo con path documento
+AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX")
 
-# ========= TIMEZONE =========
-local_tz = pytz.timezone("Europe/Rome")
-def ts_now_it():
-    return datetime.now(local_tz).strftime("%d/%m/%Y %H:%M:%S")
-
-# ========= HELPERS =========
-def spacer(n=1):
-    for _ in range(n):
-        st.write("")
-
-def safe_filter_eq(field, value):
-    if not value:
-        return None
-    safe_value = str(value).replace("'", "''")
-    return f"{field} eq '{safe_value}'"
-
-def build_chat_messages(user_q, context_snippets):
-    sys_msg = {
-        "role": "system",
-        "content": ("Sei un assistente che risponde SOLO in base ai documenti forniti nel contesto. "
-                    "Se l'informazione non è presente, dillo chiaramente."),
-    }
-    ctx = "\n\n".join(["- " + s for s in context_snippets]) if context_snippets else "(nessun contesto)"
-    user_msg = {"role": "user", "content": f"CONTEXTPASS:\n{ctx}\n\nDOMANDA:\n{user_q}"}
-    return [sys_msg, user_msg]
-
-# ========= CLIENTS =========
+# --------- CLIENTS (robusti: non bloccano il deploy se mancanti) ---------
+client = None
 try:
-    credential = ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
-    now_ts = datetime.now(timezone.utc).timestamp()
-    refresh = True
-    if "aad_token" in st.session_state and "aad_exp" in st.session_state:
-        if now_ts < st.session_state["aad_exp"] - 300:
-            refresh = False
-    if refresh:
-        access = credential.get_token("https://cognitiveservices.azure.com/.default")
-        st.session_state["aad_token"] = access.token
-        st.session_state["aad_exp"] = access.expires_on
-
-    client = AzureOpenAI(
-        api_version=API_VERSION,
-        azure_endpoint=AZURE_OPENAI_ENDPOINT,
-        azure_ad_token=st.session_state["aad_token"],
-    )
-
-    search_key_tuple = (AZURE_SEARCH_ENDPOINT, AZURE_SEARCH_KEY, AZURE_SEARCH_INDEX)
-    if "search_client" not in st.session_state or st.session_state.get("search_key") != search_key_tuple:
-        if AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_KEY and AZURE_SEARCH_INDEX:
-            st.session_state["search_client"] = SearchClient(
-                endpoint=AZURE_SEARCH_ENDPOINT,
-                index_name=AZURE_SEARCH_INDEX,
-                credential=AzureKeyCredential(AZURE_SEARCH_KEY),
-            )
-            st.session_state["search_key"] = search_key_tuple
-    search_client = st.session_state.get("search_client")
-
+    if TENANT_ID and CLIENT_ID and CLIENT_SECRET and AZURE_OPENAI_ENDPOINT:
+        credential = ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
+        token = credential.get_token('https://cognitiveservices.azure.com/.default')
+        client = AzureOpenAI(
+            api_version=API_VERSION,
+            azure_endpoint=AZURE_OPENAI_ENDPOINT,
+            azure_ad_token=token.token,  # uso AAD token
+        )
+    else:
+        st.warning("⚠️ Configurazione Azure OpenAI mancante: userò una risposta di fallback.")
 except Exception as e:
-    st.error(f"Errore inizializzazione Azure OpenAI/Search: {e}")
-    st.stop()
+    st.warning(f'⚠️ Azure OpenAI non inizializzato: {e}')
 
-# ========= STATE =========
+search_client = None
+try:
+    if AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_KEY and AZURE_SEARCH_INDEX:
+        search_client = SearchClient(
+            endpoint=AZURE_SEARCH_ENDPOINT,
+            index_name=AZURE_SEARCH_INDEX,
+            credential=AzureKeyCredential(AZURE_SEARCH_KEY)
+        )
+    else:
+        st.info("ℹ️ Azure Search non configurato: la chat risponderà senza contesto.")
+except Exception as e:
+    st.info(f'ℹ️ Azure Search non disponibile: {e}')
+
+# --------- STATE ---------
 ss = st.session_state
-ss.setdefault("chat_history", [])
-ss.setdefault("active_doc", None)
-ss.setdefault("nav", "Chat")
+ss.setdefault('chat_history', [])  # [{'role','content','ts'}]
 
-# ========= STYLE =========
+# --------- STYLE (SOLO GRAFICA) ---------
 st.markdown("""
 <style>
-/* ========= SFONDO PAGINA A DUE COLONNE =========
-   Sinistra #F6FDFC (28%), destra #f1f5f9 (72%) */
-html, body, .stApp { height:100%; background:transparent !important; }
+:root{
+  --yellow:#FDF6B4; --yellow-border:#FDF6B4;
+  --ai-bg:#F1F6FA; --ai-border:#F1F6FA; --text:#1f2b3a;
+  --menu-blue:#2F98C7;
+}
+
+/* ===== SFONDO PAGINA A DUE COLONNE (robusto) ===== */
+html, body, .stApp { height: 100%; background: transparent !important; }
 body {
   background: linear-gradient(to right,
     #F6FDFC 0%, #F6FDFC 28%,
     #f1f5f9 28%, #f1f5f9 100%) !important;
 }
-/* contenitore centrale trasparente */
-.block-container { background:transparent !important; }
-
-/* opzionale: un filo di padding dentro le colonne */
+.block-container { background: transparent !important; max-width:1200px; min-height:100vh; }
 [data-testid="stHorizontalBlock"] [data-testid="column"] > div:first-child { padding: 12px; }
 
-/* ========= MENÙ A SINISTRA (RADIO) =========
-   1) niente bordi   2) testo allineato a sinistra   3) attivo blu con testo bianco */
-
-/* nascondo il pallino del radio */
-label[data-baseweb="radio"] > div:first-child { display:none !important; }
-
-/* voce base */
+/* ===== MENÙ SINISTRO (RADIO): 1) niente bordi 2) testo a sx 3) attivo blu ===== */
+label[data-baseweb="radio"] > div:first-child { display:none !important; }  /* pallino */
 div[role="radiogroup"] label[data-baseweb="radio"]{
   display:flex !important; align-items:center; gap:8px;
-  padding:10px 12px; border-radius:10px;
-  cursor:pointer; user-select:none; margin-bottom:12px !important;
-  background:#ffffff;                /* fondo base */
-  color:#2F98C7;                     /* testo base blu */
-  border:none !important;            /* (1) niente bordi */
-  box-shadow:none !important;
-  text-align:left;                   /* (2) allineato a sx */
+  padding:10px 12px; border-radius:10px; cursor:pointer; user-select:none;
+  margin-bottom:12px !important; background:#ffffff; color:var(--menu-blue);
+  border:none !important; box-shadow:none !important; text-align:left;
 }
-/* hover */
-div[role="radiogroup"] label[data-baseweb="radio"]:hover{
-  background:#e6f3fb;
-}
-/* attivo: sfondo BLU e testo bianco */
+div[role="radiogroup"] label[data-baseweb="radio"]:hover{ background:#e6f3fb; }
 label[data-baseweb="radio"]:has(input:checked){
-  background:#2F98C7 !important;     /* (3) blu attivo */
-  color:#ffffff !important;
-  font-weight:600;
+  background:var(--menu-blue) !important; color:#ffffff !important; font-weight:600;
 }
-/* forza bianco anche sugli elementi interni */
-label[data-baseweb="radio"]:has(input:checked) * { color:#ffffff !important; }
+label[data-baseweb="radio"]:has(input:checked) *{ color:#ffffff !important; }
 
-/* ===== NAV MENU (definitivo) ===== */
-
-/* Base: niente bordini, testo a sinistra, full-width */
-.nav-item .stButton > button,
-.nav-item .stButton [data-testid="baseButton-secondary"] {
-  width: 100%;
-  display: block;
-  text-align: left;                 /* (2) allineate a sinistra */
-  background: #ffffff !important;
-  color: #2F98C7 !important;
-  border: none !important;          /* (1) togli i bordini */
-  box-shadow: none !important;
-  border-radius: 10px !important;
-  padding: 10px 12px !important;
-}
-
-/* Hover (solo feedback) */
-.nav-item .stButton > button:hover,
-.nav-item .stButton [data-testid="baseButton-secondary"]:hover {
-  background: #e6f3fb !important;   /* azzurrino chiaro */
-  color: #2F98C7 !important;
-  border: none !important;
-}
-
-/* Attivo: sfondo BLU pieno, testo bianco */
-.nav-item.active .stButton > button,
-.nav-item.active .stButton [data-testid="baseButton-secondary"] {
-  background: #2F98C7 !important;   /* (3) blu attivo */
-  color: #ffffff !important;
-  font-weight: 600 !important;
-  border: none !important;          /* niente bordini anche da attivo */
-  box-shadow: none !important;
-}
-
-/* evidenziazione ricerca */
+/* ===== Chat card (invariata) ===== */
 mark { background:#fff3bf; padding:0 .15em; border-radius:3px; }
-
-/* Chat */
 .chat-card{border:1px solid #e6eaf0;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(16,24,40,.04);}
 .chat-header{padding:12px 16px;border-bottom:1px solid #eef2f7;font-weight:800;color:#1f2b3a;}
-.chat-body{padding:14px;max-height:70vh;overflow-y:auto;background:#fff;border-radius:0 0 14px 14px;}
+.chat-body{padding:14px;max-height:70vh;overflow-y:auto;}
 .msg-row{display:flex;gap:10px;margin:8px 0;}
 .msg{padding:10px 14px;border-radius:16px;border:1px solid;max-width:78%;line-height:1.45;font-size:15px;}
 .msg .meta{font-size:11px;opacity:.7;margin-top:6px;}
-.msg.ai{background:#F1F6FA;border-color:#F1F6FA;color:#1f2b3a;}
-.msg.user{background:#FDF6B4;border-color:#FDF6B4;color:#2b2b2b;margin-left:auto;}
+.msg.ai{background:var(--ai-bg);border-color:var(--ai-border);color:var(--text);}
+.msg.user{background:var(--yellow);border-color:var(--yellow-border);color:#2b2b2b;margin-left:auto;}
+.avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;}
+.avatar.ai{background:#d9e8ff;color:#123;}
+.avatar.user{background:#fff0a6;color:#5a4a00;}
+.small{font-size:12px;color:#5b6b7e;margin:6px 0 2px;}
+.chat-footer{padding:10px 12px 12px;}
 </style>
 """, unsafe_allow_html=True)
 
-# ========= LAYOUT =========
-left, right = st.columns([0.28, 0.72], gap="large")
+# --------- LAYOUT ---------
+left, right = st.columns([0.28, 0.72], gap='large')
 
-# ----- LEFT PANE -----
+# ===== LEFT PANE =====
 with left:
     try:
-        st.image("images/Nuovo_Logo.png", width=200)
+        st.image('images/Nuovo_Logo.png', width=200)
     except Exception:
-        st.markdown("")
+        st.markdown('')
+    st.markdown('---')
 
-    st.markdown("---")
+    labels = {
+        "📤 Origine": "Leggi documento",
+        "💬 Chat": "Chat",
+        "🕒 Cronologia": "Cronologia",
+    }
+    choice = st.radio('', list(labels.keys()), index=1)  # default: Chat
+    nav = labels[choice]
 
-    nav_labels = [("📤 Documenti", "Leggi documento"), ("💬 Chat", "Chat"), ("🕒 Cronologia", "Cronologia")]
-    for label, value in nav_labels:
-        active_cls = "nav-item active" if ss["nav"] == value else "nav-item"
-        st.markdown(f'<div class="{active_cls}">', unsafe_allow_html=True)
-        if st.button(label, key=f"nav_{value}", type="secondary", use_container_width=True):
-            ss["nav"] = value
-            st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+    # loghi in basso
+    st.markdown("<div style='flex-grow:1'></div>", unsafe_allow_html=True)
+    colA, colB = st.columns(2)
+    with colA:
+        try:
+            st.image('images/logoRAEE.png', width=80)
+        except Exception:
+            st.markdown('')
+    with colB:
+        try:
+            st.image('images/logoNPA.png', width=80)
+        except Exception:
+            st.markdown('')
 
-    spacer(10)
-    st.markdown(
-        """
-        <div style="display:flex; justify-content:space-between; align-items:center; width:100%;">
-            <div><img src="images/logoRAEE.png" width="80"></div>
-            <div><img src="images/logoNPA.png" width="80"></div>
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
-
-# ----- RIGHT PANE -----
+# ===== RIGHT PANE =====
 with right:
-    st.title("BENVENUTO !")
+    st.title('BENVENUTO !')
 
-    if ss["nav"] == "Leggi documento":
-        # il tuo codice documenti qui
+    if nav == 'Leggi documento':
+        st.subheader('📄 Scegli il documento')
+        # TODO: qui la tua logica documenti
+        st.info("Questa sezione verrà completata successivamente.")
         pass
 
-    elif ss["nav"] == "Cronologia":
-        # il tuo codice cronologia qui
-        pass
+    elif nav == 'Chat':
+        st.subheader('💬 Chiedi quello che vuoi')
+        if search_client:
+            st.info("Cercherò nei documenti indicizzati (Azure Search).")
+        else:
+            st.info("Azure Search non configurato: risponderò senza contesto.")
 
-    else:  # 'Chat'
+        # --- CARD CHAT ---
         st.markdown('<div class="chat-card">', unsafe_allow_html=True)
-        st.markdown('<div class="chat-header">EasyLook.DOC Chat</div>', unsafe_allow_html=True)
-        st.markdown('<div class="chat-body">', unsafe_allow_html=True)
+        st.markdown('<div class="chat-header">Conversazione</div>', unsafe_allow_html=True)
 
-        # --- Barra di ricerca ---
-        import re
-        def _highlight(text: str, q: str) -> str:
-            if not q:
-                return html.escape(text).replace("\n", "<br>")
-            escaped = html.escape(text)
-            pat = re.compile(re.escape(q), re.IGNORECASE)
-            return pat.sub(lambda m: f"<mark>{m.group(0)}</mark>", escaped).replace("\n", "<br>")
+        # Corpo messaggi
+        st.markdown('<div class="chat-body" id="chat-body">', unsafe_allow_html=True)
+        if not ss['chat_history']:
+            st.markdown('<div class="small">Nessun messaggio. Fai una domanda.</div>', unsafe_allow_html=True)
+        else:
+            for m in ss['chat_history']:
+                role = m['role']
+                content = html.escape(m['content']).replace('\n', '<br>')
+                ts = datetime.fromisoformat(m['ts']).strftime('%d/%m %H:%M')
+                if role == 'user':
+                    st.markdown(f"""
+                        <div class='msg-row' style='justify-content:flex-end;'>
+                          <div class='msg user'>
+                            {content}
+                            <div class='meta'>{ts}</div>
+                          </div>
+                          <div class='avatar user'>U</div>
+                        </div>""", unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                        <div class='msg-row'>
+                          <div class='avatar ai'>A</div>
+                          <div class='msg ai'>
+                            {content}
+                            <div class='meta'>{ts}</div>
+                          </div>
+                        </div>""", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)  # chiude chat-body
 
-        search_q = st.text_input("🔎 Cerca nella chat", value="", placeholder="Cerca messaggi…", label_visibility="visible")
-        spacer(2)
-        st.markdown("---")
-        spacer(1)
+        # autoscroll
+        import streamlit.components.v1 as components
+        components.html('''
+            <script>
+            const el = window.parent.document.getElementById('chat-body');
+            if (el) { el.scrollTop = el.scrollHeight; }
+            </script>
+        ''', height=0)
 
-        messages_to_show = ss["chat_history"]
-        if search_q:
-            sq = search_q.strip().lower()
-            messages_to_show = [m for m in ss["chat_history"] if sq in m.get("content","").lower()]
-            st.caption(f"Risultati: {len(messages_to_show)}")
+        # Footer input
+        st.markdown('<div class="chat-footer">', unsafe_allow_html=True)
+        with st.form(key="chat_form", clear_on_submit=True):
+            user_q = st.text_input("Scrivi la tua domanda", value="")
+            sent = st.form_submit_button("Invia")
+        st.markdown('</div>', unsafe_allow_html=True)   # chiude chat-footer
+        st.markdown('</div>', unsafe_allow_html=True)   # chiude chat-card
 
-        for m in messages_to_show:
-            role_class = "user" if m["role"] == "user" else "ai"
-            body_html = _highlight(m.get("content", ""), search_q)
-            meta = m.get("ts", "")
-            html_block = (
-                "<div class='msg-row'><div class='msg %s'>%s"
-                "<div class='meta'>%s</div></div></div>"
-            ) % (role_class, body_html, meta)
-            st.markdown(html_block, unsafe_allow_html=True)
+        # Logica domanda/risposta (robusta: tenta contesto + modello, altrimenti fallback)
+        if sent and user_q.strip():
+            ss['chat_history'].append({
+                'role': 'user',
+                'content': user_q,
+                'ts': datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')
+            })
 
-        st.markdown("</div>", unsafe_allow_html=True)
+            answer = None
+            try:
+                context_parts, refs = [], []
+                if search_client:
+                    results = search_client.search(user_q, top=3)
+                    for r in results:
+                        if "chunk" in r:
+                            context_parts.append(str(r["chunk"]))
+                        if "file_name" in r:
+                            refs.append(str(r["file_name"]))
+                context = "\n\n".join(context_parts)
 
-        user_q = st.chat_input("Scrivi qui…")
-        if user_q and user_q.strip():
-            ss["chat_history"].append({"role": "user", "content": user_q.strip(), "ts": ts_now_it()})
-            # qui la parte ricerca + completamento come nel tuo file …
+                if client and context:
+                    resp = client.chat.completions.create(
+                        model=DEPLOYMENT_NAME,
+                        messages=[
+                            {"role": "system", "content": "Sei un assistente che risponde solo basandosi sui documenti forniti."},
+                            {"role": "system", "content": f"Contesto:\n{context}"},
+                            {"role": "user", "content": user_q},
+                        ],
+                        temperature=0,
+                        max_tokens=500
+                    )
+                    answer = (resp.choices[0].message.content or "").strip()
+                    if refs:
+                        answer += "\n\n— 📎 Fonti: " + ", ".join(sorted(set(refs)))
+                elif client and not context:
+                    # modello disponibile ma senza contesto
+                    resp = client.chat.completions.create(
+                        model=DEPLOYMENT_NAME,
+                        messages=[
+                            {"role": "system", "content": "Rispondi in modo chiaro."},
+                            {"role": "user", "content": user_q},
+                        ],
+                        temperature=0.2,
+                        max_tokens=300
+                    )
+                    answer = (resp.choices[0].message.content or "").strip()
+                else:
+                    # fallback se non c'è Azure OpenAI
+                    answer = "Risposta di fallback (Azure OpenAI non configurato)."
+            except Exception as e:
+                answer = f"Errore durante la ricerca o la generazione della risposta: {e}"
 
-        st.markdown('<div class="chat-footer">Suggerimento: seleziona un documento in “Documenti” per filtrare le risposte.</div>', unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+            ss['chat_history'].append({
+                'role': 'assistant',
+                'content': answer or "(nessuna risposta)",
+                'ts': datetime.now(timezone.utc).astimezone().isoformat(timespec='seconds')
+            })
+            st.experimental_rerun()
+
+    elif nav == 'Cronologia':
+        st.subheader("🕒 Cronologia")
+        if not ss['chat_history']:
+            st.write("Nessun messaggio ancora.")
+        else:
+            for m in ss['chat_history']:
+                who = "👤 Tu" if m["role"] == "user" else "🤖 Assistente"
+                try:
+                    ts = datetime.fromisoformat(m['ts']).strftime('%d/%m %H:%M')
+                except Exception:
+                    ts = m.get('ts', '')
+                st.markdown(f"**{who}** · _{ts}_")
+                st.markdown(m["content"])
+                st.markdown("---")
