@@ -97,6 +97,15 @@ ss.setdefault("nav", "Chat")   # default pannello destro
 # ========= STYLE =========
 st.markdown("""
 <style>
+body { background-color: #DAE5E8; }
+.main-container {
+    background-color: white;
+    border-radius: 20px;
+    padding: 20px;
+    margin: 20px auto;
+    max-width: 1400px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
 /* Card azzurra a sinistra */
 .left-pane{
   background:#F6FBFB;
@@ -142,6 +151,7 @@ mark { background: #F6FBFB; padding: 0 .15em; border-radius: 3px; }
 
 
 # ========= LAYOUT =========
+st.markdown('<div class="main-container">', unsafe_allow_html=True)
 left, right = st.columns([0.28, 0.72], gap="large")
 
 # ----- LEFT PANE (menu + loghi) -----
@@ -335,3 +345,5 @@ with right:
 
 
 
+
+st.markdown('</div>', unsafe_allow_html=True)
