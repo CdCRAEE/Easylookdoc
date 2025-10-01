@@ -93,24 +93,50 @@ ss.setdefault("nav", "Chat")
 # ========= STYLE =========
 st.markdown("""
 <style>
-/* Sfondo pagina diviso: sinistra #F6FDFC (28%), destra #f1f5f9 (72%) */
-.stApp::before{
-  content:"";
-  position:fixed;
-  inset:0;
-  z-index:-1;
+/* ========= SFONDO PAGINA A DUE COLONNE =========
+   Sinistra #F6FDFC (28%), destra #f1f5f9 (72%) */
+html, body, .stApp { height:100%; background:transparent !important; }
+body {
   background: linear-gradient(to right,
     #F6FDFC 0%, #F6FDFC 28%,
-    #f1f5f9 28%, #f1f5f9 100%);
+    #f1f5f9 28%, #f1f5f9 100%) !important;
 }
+/* contenitore centrale trasparente */
+.block-container { background:transparent !important; }
 
-/* Container centrale trasparente */
-.block-container { background: transparent !important; padding-top:12px; padding-bottom:12px; }
-
-/* Padding dentro le colonne */
+/* opzionale: un filo di padding dentro le colonne */
 [data-testid="stHorizontalBlock"] [data-testid="column"] > div:first-child { padding: 12px; }
 
-/* Menu */
+/* ========= MENÙ A SINISTRA (RADIO) =========
+   1) niente bordi   2) testo allineato a sinistra   3) attivo blu con testo bianco */
+
+/* nascondo il pallino del radio */
+label[data-baseweb="radio"] > div:first-child { display:none !important; }
+
+/* voce base */
+div[role="radiogroup"] label[data-baseweb="radio"]{
+  display:flex !important; align-items:center; gap:8px;
+  padding:10px 12px; border-radius:10px;
+  cursor:pointer; user-select:none; margin-bottom:12px !important;
+  background:#ffffff;                /* fondo base */
+  color:#2F98C7;                     /* testo base blu */
+  border:none !important;            /* (1) niente bordi */
+  box-shadow:none !important;
+  text-align:left;                   /* (2) allineato a sx */
+}
+/* hover */
+div[role="radiogroup"] label[data-baseweb="radio"]:hover{
+  background:#e6f3fb;
+}
+/* attivo: sfondo BLU e testo bianco */
+label[data-baseweb="radio"]:has(input:checked){
+  background:#2F98C7 !important;     /* (3) blu attivo */
+  color:#ffffff !important;
+  font-weight:600;
+}
+/* forza bianco anche sugli elementi interni */
+label[data-baseweb="radio"]:has(input:checked) * { color:#ffffff !important; }
+
 /* ===== NAV MENU (definitivo) ===== */
 
 /* Base: niente bordini, testo a sinistra, full-width */
