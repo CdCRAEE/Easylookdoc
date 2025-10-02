@@ -287,7 +287,7 @@ with right:
         st.subheader('💬 Chiedi quello che vuoi')
 
         if search_client:
-            st.info("Cercherò nei documenti indicizzati (Azure Search).")
+            st.info("Cercherò in tutti i documenti")
         else:
             st.info("Azure Search non configurato: risponderò senza contesto.")
 
