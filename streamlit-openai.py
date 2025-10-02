@@ -7,6 +7,8 @@ from azure.identity import ClientSecretCredential
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 import streamlit.components.v1 as components
+from io import BytesIO
+from docx import Document
 
 st.set_page_config(page_title='EasyLook.DOC Chat', page_icon='💬', layout='wide')
 
@@ -14,6 +16,7 @@ st.set_page_config(page_title='EasyLook.DOC Chat', page_icon='💬', layout='wid
 TENANT_ID = os.getenv('AZURE_TENANT_ID')
 CLIENT_ID = os.getenv('AZURE_CLIENT_ID')
 CLIENT_SECRET = os.getenv('AZURE_CLIENT_SECRET')
+
 AZURE_OPENAI_ENDPOINT = os.getenv('AZURE_OPENAI_ENDPOINT')
 AZURE_OPENAI_DEPLOYMENT = os.getenv('AZURE_OPENAI_DEPLOYMENT')
 API_VERSION = os.getenv('AZURE_OPENAI_API_VERSION', '2024-05-01-preview')
@@ -21,7 +24,7 @@ API_VERSION = os.getenv('AZURE_OPENAI_API_VERSION', '2024-05-01-preview')
 AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")
 AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
 AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX")
-FILENAME_FIELD = "metadata_storage_path"
+FILENAME_FIELD = "metadata_storage_path"  # campo usato per filtrare per file
 
 # --------- TIMEZONE ---------
 local_tz = pytz.timezone("Europe/Rome")
@@ -49,6 +52,34 @@ def build_chat_messages(user_q, context_snippets):
     user_msg = {"role": "user", "content": f"CONTEXTPASS:\n{ctx}\n\nDOMANDA:\n{user_q}"}
     return [sys_msg, user_msg]
 
+def fmt_ts(ts_raw: str) -> str:
+    try:
+        if "T" in ts_raw and ("+" in ts_raw or "Z" in ts_raw):
+            dt = datetime.fromisoformat(ts_raw.replace("Z","+00:00"))
+            return dt.astimezone(local_tz).strftime('%d/%m %H:%M')
+        return ts_raw
+    except Exception:
+        return ts_raw
+
+def highlight_nth(text: str, q: str, global_idx: int):
+    escaped = html.escape(text)
+    if not q:
+        return escaped.replace("\n", "<br>"), global_idx
+    pat = re.compile(re.escape(q), re.IGNORECASE)
+    matches = list(pat.finditer(escaped))
+    if not matches:
+        return escaped.replace("\n", "<br>"), global_idx
+    if global_idx < len(matches):
+        parts, last_end = [], 0
+        for i, m in enumerate(matches):
+            parts.append(escaped[last_end:m.start()])
+            parts.append(f"<mark>{m.group(0)}</mark>" if i == global_idx else m.group(0))
+            last_end = m.end()
+        parts.append(escaped[last_end:])
+        return "".join(parts).replace("\n", "<br>"), 0
+    else:
+        return escaped.replace("\n", "<br>"), global_idx - len(matches)
+
 # --------- CLIENTS ---------
 try:
     credential = ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
@@ -69,6 +100,7 @@ try:
         azure_ad_token=st.session_state["aad_token"],
     )
 
+    # --- SearchClient reuse in session ---
     search_key_tuple = (AZURE_SEARCH_ENDPOINT, AZURE_SEARCH_KEY, AZURE_SEARCH_INDEX)
     if "search_client" not in st.session_state or st.session_state.get("search_key") != search_key_tuple:
         if AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_KEY and AZURE_SEARCH_INDEX:
@@ -87,7 +119,7 @@ except Exception as e:
 # --------- STATE ---------
 ss = st.session_state
 ss.setdefault('chat_history', [])
-ss.setdefault("active_doc", None)
+ss.setdefault("active_doc", None)     # filtro documento correntemente selezionato
 ss.setdefault("nav", "Chat")
 ss.setdefault("search_index", 0)
 ss.setdefault("last_search_q", "")
@@ -118,14 +150,19 @@ html, body{ height:100%; overflow:hidden; }
 }
 .block-container > *{ position:relative; z-index:1; }
 
-/* Chat card in grid: header | body scroll | footer */
+/* Chat card in grid: header | body scroll | footer (footer sempre visibile) */
 .chat-card{
   border:1px solid #e6eaf0;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(16,24,40,.04);
   display:grid; grid-template-rows:auto 1fr auto;
   height:calc(var(--vh) - var(--top-offset));
 }
 .chat-header{padding:12px 16px;border-bottom:1px solid #eef2f7;font-weight:800;color:#1f2b3a;}
-.chat-body{padding:14px; overflow-y:auto; background:#fff;}
+.chat-body{
+  padding:14px; 
+  overflow-y:auto; 
+  min-height:0;                  /* evita che il body spinga fuori il footer */
+  background:#fff;
+}
 .chat-footer{padding:10px 12px 12px; border-top:1px solid #eef2f7; border-radius:0 0 14px 14px; background:#fff;}
 
 .msg-row{display:flex;gap:10px;margin:8px 0;}
@@ -148,6 +185,17 @@ div[role="radiogroup"] label[data-baseweb="radio"]:hover{background:#eef5ff;}
 label[data-baseweb="radio"]:has(input:checked){background:#2F98C7;color:#ffffff;font-weight:600;}
 label[data-baseweb="radio"]:has(input:checked),
 label[data-baseweb="radio"]:has(input:checked) *{color:#ffffff !important;}
+
+/* stile per tutti i pulsanti st.button */
+.stButton>button{
+  border:1px solid #2F98C7 !important;
+  color:#2F98C7 !important;
+  background:#fff !important;
+  border-radius:8px !important;
+}
+.stButton>button:hover{
+  background:#eef5ff !important;
+}
 
 /* --- NAV ricerca compatta --- */
 #search-nav .stButton>button{
@@ -203,10 +251,40 @@ with left:
 with right:
     st.title('BENVENUTO !')
 
+    # ======= ORIGINE: elenco documenti + filtro =======
     if nav == 'Leggi documento':
-        st.subheader('📄 Scegli il documento')
-        st.info("Questa sezione verrà sistemata dopo. Nel frattempo usa la Chat.")
+        st.subheader("📤 Origine (indice)")
+        if not search_client:
+            st.warning("⚠️ Azure Search non configurato.")
+        else:
+            try:
+                # recupero facet con l'elenco dei file (usa il campo FILENAME_FIELD)
+                res = search_client.search(
+                    search_text="*",
+                    facets=[f"{FILENAME_FIELD},count:1000"],
+                    top=0,
+                )
+                facets = list(res.get_facets().get(FILENAME_FIELD, []))
+                paths = [f["value"] for f in facets] if facets else []
 
+                if not paths:
+                    st.info("Nessun documento trovato nell'indice (controlla che il campo sia facetable e l'indice popolato).")
+                else:
+                    import os as _os
+                    display = [_os.path.basename(p.rstrip("/")) or p for p in paths]
+                    idx = paths.index(ss["active_doc"]) if ss.get("active_doc") in paths else 0
+                    selected_label = st.selectbox("Seleziona documento", display, index=idx)
+                    selected_path = paths[display.index(selected_label)]
+                    if selected_path != ss.get("active_doc"):
+                        ss["active_doc"] = selected_path
+                        st.success(f"Filtro attivo su: {selected_label}")
+                    if st.button("Usa tutti i documenti (rimuovi filtro)"):
+                        ss["active_doc"] = None
+                        st.rerun()
+            except Exception as e:
+                st.error(f"Errore nel recupero dell'elenco documenti: {e}")
+
+    # ======= CHAT =======
     elif nav == 'Chat':
         st.subheader('💬 Chiedi quello che vuoi')
 
@@ -224,23 +302,32 @@ with right:
         # Utility richieste (destra)
         colu1, colu2, _ = st.columns([1,1,6])
         with colu1:
-            if st.button("🧹 Svuota chat"):
+            if st.button("Svuota chat"):
                 ss['chat_history'] = []
                 st.rerun()
         with colu2:
-            if st.button("⬇️ Esporta chat"):
+            if st.button("Esporta chat (Word)"):
                 if ss['chat_history']:
-                    md_lines = ["# Conversazione\n"]
+                    doc = Document()
+                    doc.add_heading('Conversazione', 0)
                     for m in ss['chat_history']:
                         who = "Utente" if m['role'] == 'user' else "Assistente"
                         ts = m.get('ts', '')
-                        md_lines.append(f"**{who}** ({ts}):\n\n{m.get('content','')}\n")
-                    md_str = "\n".join(md_lines)
-                    st.download_button("Scarica .md", data=md_str, file_name="chat_export.md", mime="text/markdown")
+                        doc.add_paragraph(f"{who} ({ts}):")
+                        doc.add_paragraph(m.get('content',''))
+                        doc.add_paragraph('')  # riga vuota
+                    buffer = BytesIO()
+                    doc.save(buffer)
+                    buffer.seek(0)
+                    st.download_button(
+                        label="Scarica .docx",
+                        data=buffer,
+                        file_name="chat_export.docx",
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
 
         # --- Navigatori ricerca compatti, su UNA riga e sopra il separatore ---
         if search_q:
-            # conteggio match
             def count_occurrences(text: str, q: str) -> int:
                 if not q: return 0
                 return len(re.findall(re.escape(q), text, flags=re.IGNORECASE))
@@ -270,7 +357,7 @@ with right:
         # ---------------- CHAT CARD ----------------
         st.markdown('<div class="chat-card">', unsafe_allow_html=True)
 
-        # (NUOVO) Script di misura altezza/offset — messo DOPO che la card esiste
+        # Script di misura altezza/offset — messo DOPO che la card esiste
         components.html("""
         <script>
         (function(){
@@ -296,42 +383,11 @@ with right:
 
         st.markdown('<div class="chat-header">Conversazione</div>', unsafe_allow_html=True)
 
-        # util per timestamp e highlight
-        rome_tz = pytz.timezone("Europe/Rome")
-        def fmt_ts(ts_raw: str) -> str:
-            try:
-                if "T" in ts_raw and ("+" in ts_raw or "Z" in ts_raw):
-                    dt = datetime.fromisoformat(ts_raw.replace("Z","+00:00"))
-                    return dt.astimezone(rome_tz).strftime('%d/%m %H:%M')
-                return ts_raw
-            except Exception:
-                return ts_raw
-
-        def highlight_nth(text: str, q: str, global_idx: int):
-            escaped = html.escape(text)
-            if not q: return escaped.replace("\n","<br>"), global_idx
-            pat = re.compile(re.escape(q), re.IGNORECASE)
-            matches = list(pat.finditer(escaped))
-            if not matches: return escaped.replace("\n","<br>"), global_idx
-            if global_idx < len(matches):
-                parts, last_end = [], 0
-                for i,m in enumerate(matches):
-                    parts.append(escaped[last_end:m.start()])
-                    parts.append(f"<mark>{m.group(0)}</mark>" if i==global_idx else m.group(0))
-                    last_end = m.end()
-                parts.append(escaped[last_end:])
-                return "".join(parts).replace("\n","<br>"), 0
-            else:
-                return escaped.replace("\n","<br>"), global_idx - len(matches)
-
-        messages_to_show = ss["chat_history"]
-
-        st.markdown('<div class="chat-body" id="chat-body">', unsafe_allow_html=True)
-        if not messages_to_show:
-            st.markdown('<div class="small">Nessun messaggio. Fai una domanda.</div>', unsafe_allow_html=True)
-        else:
+        # Corpo messaggi (render solo se esistono)
+        if ss["chat_history"]:
+            st.markdown('<div class="chat-body" id="chat-body">', unsafe_allow_html=True)
             remaining_idx = (ss.search_index % total_matches) if (search_q and total_matches > 0) else 0
-            for m in messages_to_show:
+            for m in ss["chat_history"]:
                 role = m['role']
                 raw_text = m.get('content','')
                 if search_q and total_matches > 0:
@@ -351,7 +407,7 @@ with right:
                           <div class='avatar ai'>A</div>
                           <div class='msg ai'>{content_html}<div class='meta'>{ts}</div></div>
                         </div>""", unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)  # chiude chat-body
+            st.markdown('</div>', unsafe_allow_html=True)  # chiude chat-body
 
         # Footer input SEMPRE visibile
         typing_ph = st.empty()
@@ -374,6 +430,7 @@ with right:
         if sent and user_q.strip():
             ss['chat_history'].append({'role':'user','content':user_q.strip(),'ts':ts_now_it()})
 
+            # RICERCA NEL MOTORE (con eventuale filtro documento attivo)
             context_snippets, sources = [], []
             try:
                 if not search_client:
@@ -396,6 +453,7 @@ with right:
             except Exception as e:
                 st.error(f"Errore ricerca: {e}")
 
+            # CHIAMATA MODELLO con contesto
             try:
                 messages = build_chat_messages(user_q, context_snippets)
                 with typing_ph, st.spinner("Sto scrivendo…"):
@@ -407,11 +465,14 @@ with right:
                     )
                 typing_ph.empty()
                 ai_text = resp.choices[0].message.content if resp.choices else "(nessuna risposta)"
+
+                # elenco fonti (basename per pulizia)
                 if sources:
                     import os as _os
                     shown = [_os.path.basename(s.rstrip("/")) or s for s in sources]
                     uniq = list(dict.fromkeys(shown))
                     ai_text += "\n\n— 📎 Fonti: " + ", ".join(uniq[:6])
+
                 ss['chat_history'].append({'role':'assistant','content':ai_text,'ts':ts_now_it()})
             except Exception as e:
                 typing_ph.empty()
