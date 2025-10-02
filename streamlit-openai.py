@@ -235,7 +235,7 @@ with left:
     st.markdown('---')
 
     labels = {
-        "📤 Origine": "Leggi documento",
+        "📤 Documenti": "Leggi documento",
         "💬 Chat": "Chat",
         "🕒 Cronologia": "Cronologia",
         "📂 Carica documenti": "Carica documenti",
@@ -257,9 +257,9 @@ with left:
 with right:
     st.title('BENVENUTO !')
 
-    # ======= ORIGINE: elenco documenti + filtro =======
+    # ======= DOCUMENTI: elenco documenti + filtro =======
     if nav == 'Leggi documento':
-        st.subheader("📤 Origine (indice)")
+        st.subheader("📤 Documenti")
         if not search_client:
             st.warning("⚠️ Azure Search non configurato.")
         else:
