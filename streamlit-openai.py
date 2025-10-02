@@ -342,6 +342,7 @@ with left:
     nav = labels[choice]
 
     # loghi in basso
+    spacer(3)
     st.markdown("<div style='flex-grow:1'></div>", unsafe_allow_html=True)
     colA, colB = st.columns(2)
     with colA:
