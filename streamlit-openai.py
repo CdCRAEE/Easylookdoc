@@ -1,14 +1,17 @@
 import os, html, re
 import pytz
 import streamlit as st
+import streamlit.components.v1 as components
+import unicodedata, datetime as dt
 from datetime import datetime, timezone
 from openai import AzureOpenAI
-from azure.identity import ClientSecretCredential
+from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
-import streamlit.components.v1 as components
+from azure.storage.blob import BlobServiceClient, BlobSasPermissions, generate_blob_sas
 from io import BytesIO # usato per eventuali export futuri
 st.set_page_config(page_title='EasyLook.DOC Chat', page_icon='💬', layout='wide')
+
 
 # --------- CONFIG ---------
 TENANT_ID = os.getenv('AZURE_TENANT_ID')
@@ -23,6 +26,12 @@ AZURE_SEARCH_ENDPOINT = os.getenv("AZURE_SEARCH_ENDPOINT")
 AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
 AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX")
 FILENAME_FIELD = "metadata_storage_path"  # campo usato per filtrare per file
+
+ACCOUNT_NAME = "cdcraeeaieastus"     # <-- il tuo account
+# (opzionale) eccezioni esplicite: UPN -> container
+CONTAINER_OVERRIDES = {
+    # "utente.particolare@cdcraee.it": "c-x-cognome-personalizzato",
+}
 
 # --------- TIMEZONE ---------
 local_tz = pytz.timezone("Europe/Rome")
@@ -78,6 +87,93 @@ def highlight_nth(text: str, q: str, global_idx: int):
     else:
         return escaped.replace("\n", "<br>"), global_idx - len(matches)
 
+def _slugify_ascii(s: str) -> str:
+    """Normalizza accenti e rimuove caratteri non ammessi."""
+    s = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
+    return s
+ 
+def upn_to_container(upn: str) -> str:
+    """
+    Converte 'nome.cognome@dominio' -> 'c-n-cognome'
+    Esempi:
+      'andrea.cervini@...'      -> 'c-a-cervini'
+      'francesca.d\'angelo@...' -> 'c-f-dangelo'
+      'luca.maria.rossi@...'    -> 'c-l-rossi'  (cognome = ultimo token)
+      'chiara@...'              -> 'c-c-chiara' (fallback se manca cognome)
+    """
+    upn_l = upn.strip().lower()
+    if upn_l in CONTAINER_OVERRIDES:
+        return CONTAINER_OVERRIDES[upn_l]
+ 
+    left = upn_l.split("@", 1)[0]                # es. 'franco.ferrigno'
+    parts = [p for p in re.split(r"[^a-z0-9]+", left) if p]
+    if not parts:
+        # fallback robusto: tutto 'user'
+        return "c-u-user"
+ 
+    first  = parts[0]
+    last   = parts[-1] if len(parts) > 1 else parts[0]
+    initial = _slugify_ascii(first)[:1] or "x"
+    surname = _slugify_ascii(last) or "user"
+ 
+    name = f"c-{initial}-{surname}"
+    # regole Azure container: 3-63 char, solo [a-z0-9-], start/end alfanumerico
+    name = re.sub(r"-+", "-", name).strip("-")
+    if len(name) < 3:
+        name = (name + "000")[:3]
+    if len(name) > 63:
+        name = name[:63].rstrip("-")
+    if not re.match(r"^[a-z0-9].*[a-z0-9]$", name):
+        # forza inizio/fine alfanumerico in casi limite
+        name = re.sub(r"^[^a-z0-9]+", "", name)
+        name = re.sub(r"[^a-z0-9]+$", "", name)
+        if len(name) < 3:
+            name = "c-u-user"
+    return name
+
+@st.cache_resource(show_spinner=False)
+def _svc():
+    cred = DefaultAzureCredential()
+    return BlobServiceClient(f"https://{ACCOUNT_NAME}.blob.core.windows.net", credential=cred)
+ 
+def make_upload_sas(container: str, blob_name: str, ttl_minutes: int = 10) -> str:
+    svc = _svc()
+    # Delegation key valida solo pochi minuti
+    now = dt.datetime.utcnow()
+    udk = svc.get_user_delegation_key(now - dt.timedelta(minutes=1), now + dt.timedelta(minutes=ttl_minutes))
+    sas = generate_blob_sas(
+        account_name=ACCOUNT_NAME,
+        container_name=container,
+        blob_name=blob_name,
+        user_delegation_key=udk,
+        permission=BlobSasPermissions(create=True, write=True),  # nuovo blob o overwrite controllato
+        expiry=now + dt.timedelta(minutes=ttl_minutes),
+    )
+    return f"https://{ACCOUNT_NAME}.blob.core.windows.net/{container}/{blob_name}?{sas}"
+
+def ensure_container(svc: BlobServiceClient, container: str):
+    """Crea il container se non esiste (idempotente se si hanno i permessi)."""
+    try:
+        svc.create_container(container)
+    except Exception:
+        # Se esiste già o mancano permessi di create, proseguiamo comunque:
+        # l'upload via SAS funzionerà se il container esiste.
+        pass
+
+def sas_for_user_blob(upn: str, blob_name: str, ttl_minutes: int = 15) -> str:
+    """
+    Wrapper che deriva il container dall'UPN e delega a make_upload_sas.
+    Non rimuove nulla: riusa _svc(), upn_to_container() e make_upload_sas().
+    """
+    container = upn_to_container(upn)
+    svc = _svc()
+    # Tenta di assicurare il container (se l'identità dell'app ha i permessi)
+    ensure_container(svc, container)
+    # Riusa la tua funzione esistente per creare la SAS
+    return make_upload_sas(container, blob_name, ttl_minutes=ttl_minutes)
+
 # --------- CLIENTS ---------
 try:
     credential = ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
@@ -121,6 +217,16 @@ ss.setdefault("active_doc", None)     # filtro documento correntemente seleziona
 ss.setdefault("nav", "Chat")
 ss.setdefault("search_index", 0)
 ss.setdefault("last_search_q", "")
+
+# Recupero UPN/email utente
+user_upn = ss.get("user_upn")
+user_upn = st.text_input(
+    "Email utente (UPN)",
+    value=user_upn or "",
+    placeholder="nome.cognome@cdcraee.it"
+)
+if user_upn:
+    ss["user_upn"] = user_upn.strip().lower()
 
 # --------- STYLE ---------
 CSS = """
@@ -281,6 +387,45 @@ with right:
                         st.rerun()
             except Exception as e:
                 st.error(f"Errore nel recupero dell'elenco documenti: {e}")
+
+       # ======= SEZIONE: Upload per-utente con SAS =======
+        st.divider()
+        with st.expander("📂 Carica un nuovo documento"):
+            if ss.get("user_upn"):
+                uploaded = st.file_uploader(
+                    "Seleziona un file da caricare nel tuo contenitore personale",
+                    type=["pdf", "docx", "txt", "md"],
+                    accept_multiple_files=False
+                )
+
+                if uploaded is not None:
+                    # Nome blob: prefisso 'uploads/' + timestamp + nome originale
+                    blob_name = f"uploads/{int(dt.datetime.utcnow().timestamp())}_{uploaded.name}"
+
+                    try:
+                        # URL SAS per il container derivato dall'email (UPN)
+                        upload_url = sas_for_user_blob(
+                            ss["user_upn"],
+                            blob_name,
+                            ttl_minutes=15
+                        )
+
+                        st.success(f"SAS generata per {ss['user_upn']}")
+                        st.write("URL (valida 15 minuti):")
+                        st.code(upload_url, language="text")
+
+                        # Se vuoi caricare direttamente dal backend Streamlit, puoi fare una PUT:
+                        # import requests
+                        # r = requests.put(upload_url, data=uploaded.getvalue(), headers={"x-ms-blob-type": "BlockBlob"})
+                        # if r.status_code in (201, 202):
+                        #     st.success("Upload completato!")
+                        # else:
+                        #     st.error(f"Errore upload: {r.status_code} - {r.text}")
+
+                    except Exception as e:
+                        st.error(f"Impossibile generare la SAS: {e}")
+            else:
+                st.warning("Inserisci l'email utente (UPN) in alto per generare la SAS del tuo contenitore.")
 
     # ======= CHAT =======
     elif nav == 'Chat':
