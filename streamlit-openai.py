@@ -39,6 +39,59 @@ def ts_now_it():
     return datetime.now(local_tz).strftime("%d/%m/%Y %H:%M:%S")
 
 # --------- HELPERS ---------
+
+# --- Helpers per ID/URL sorgenti (Base64, URL-safe, Azure Blob) ---
+import base64 as _b64, posixpath as _pp
+from urllib.parse import urlparse as _urlparse, urlunparse as _urlunparse, unquote as _unquote
+
+_B64_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-")
+
+def _looks_like_b64(s: str) -> bool:
+    if not s or len(s) < 8 or " " in s:
+        return False
+    return all(c in _B64_CHARS for c in s)
+
+def _pad_b64(s: str) -> str:
+    return s + "=" * ((4 - (len(s) % 4)) % 4)
+
+def decode_maybe_b64(s: str) -> str:
+    """Se sembra Base64 (anche URL-safe), decodifica; altrimenti restituisce s."""
+    if not _looks_like_b64(s):
+        return s
+    try:
+        return _b64.urlsafe_b64decode(_pad_b64(s)).decode("utf-8")
+    except Exception:
+        try:
+            return _b64.b64decode(_pad_b64(s)).decode("utf-8")
+        except Exception:
+            return s
+
+def clean_azure_blob_url(url: str) -> str:
+    """Rimuove query/SAS e lascia solo schema+host+path."""
+    try:
+        u = _urlparse(url)
+        return _urlunparse((u.scheme, u.netloc, u.path, "", "", ""))
+    except Exception:
+        return url
+
+def display_name_from_url(url: str) -> str:
+    """Basename decodificato (es. Manuale%20Operativo.pdf -> Manuale Operativo.pdf)."""
+    u = _urlparse(url)
+    base = _pp.basename(u.path) or u.path.strip("/")
+    return _unquote(base) or url
+
+def normalize_source_id(raw: str) -> tuple[str, str]:
+    """
+    Converte un ID/URL (anche codificato Base64) in (url_pulito, nome_file).
+    Se non è un URL, torna (decoded, decoded).
+    """
+    decoded = decode_maybe_b64(raw)
+    if isinstance(decoded, str) and decoded.startswith(("http://", "https://")):
+        clean = clean_azure_blob_url(decoded)
+        return clean, display_name_from_url(clean)
+    return decoded, decoded
+
+
 def spacer(n=1):
     for _ in range(n):
         st.write("")
@@ -582,13 +635,22 @@ with right:
                         top=5,
                         query_type="simple",
                     )
+                    seen = set()
                     for r in results:
-                        snippet = r.get("chunk") or r.get("content") or r.get("text")
-                        if snippet:
-                            context_snippets.append(str(snippet)[:400])
-                        fname = r.get(FILENAME_FIELD)
-                        if fname and fname not in sources:
-                            sources.append(fname)
+                    snippet = r.get("chunk") or r.get("content") or r.get("text")
+                    if snippet:
+                        context_snippets.append(str(snippet)[:400])
+                    raw_id = r.get(FILENAME_FIELD)
+                    if raw_id:
+                        url, name = normalize_source_id(str(raw_id))
+                        key = (url or "").lower()
+                        if not hasattr(seen, 'add'):
+                            pass
+                        # ensure seen set exists
+                        # (the 'seen' set must be defined above this loop)
+                        if key not in seen:
+                            seen.add(key)
+                            sources.append({"url": url, "name": name})
             except Exception as e:
                 st.error(f"Errore ricerca: {e}")
 
@@ -605,12 +667,10 @@ with right:
                 typing_ph.empty()
                 ai_text = resp.choices[0].message.content if resp.choices else "(nessuna risposta)"
 
-                # elenco fonti (basename per pulizia)
+                # elenco fonti (link markdown "Nome" -> URL pulito)
                 if sources:
-                    import os as _os
-                    shown = [_os.path.basename(s.rstrip("/")) or s for s in sources]
-                    uniq = list(dict.fromkeys(shown))
-                    ai_text += "\n\n— 📎 Fonti: " + ", ".join(uniq[:6])
+                    links = [f"[{s['name']}]({s['url']})" for s in sources[:6]]
+                    ai_text += "\n\n— 📎 Fonti: " + ", ".join(links)
 
                 ss['chat_history'].append({'role':'assistant','content':ai_text,'ts':ts_now_it()})
             except Exception as e:
