@@ -90,49 +90,66 @@ ss.setdefault('chat_history', [])
 ss.setdefault("active_doc", None)
 ss.setdefault("nav", "Chat")
 
+# preferenze modello/UI
+ss.setdefault("temperature", 0.2)
+ss.setdefault("max_tokens", 900)
+ss.setdefault("show_context_used", False)
+ss.setdefault("confirm_clear", False)
+
+# ricerca: indice del match globale corrente
+ss.setdefault("search_index", 0)
+ss.setdefault("last_search_q", "")
+
 # --------- STYLE ---------
 CSS = """
 <style>
 :root{
   --yellow:#FDF6B4; --yellow-border:#FDF6B4;
   --ai-bg:#F1F6FA; --ai-border:#F1F6FA; --text:#1f2b3a;
+  --vh: 100vh;
+  --top-offset: 0px;
 }
 
-/* sfondo app */
-.stApp{ background:#f5f7fa !important; }
-
-/* contenitore blocchi a piena altezza */
+/* blocco scroll pagina e altezza fissa */
+html, body{ height:100%; overflow:hidden; }
+.stApp{ height:100vh; overflow:hidden !important; background:#f5f7fa !important; }
 .block-container{
   max-width:1200px;
   min-height:100vh;
+  height:100vh;
   position:relative;
+  overflow:hidden;
 }
 
-/* colonna sinistra bianca */
+/* colonna sinistra bianca più larga */
 .block-container::before{
   content:"";
   position:absolute;
   top:0; bottom:0; left:0;
-  width:28%;
+  width:32%;    /* allargata a 32% */
   background:#ffffff;
   box-shadow:inset -1px 0 0 #e5e7eb;
   pointer-events:none;
-  z-index:0;
+  z-index:-1;
 }
 
 .block-container > *{ position:relative; z-index:1; }
 
-/* Card chat */
-.chat-card{border:1px solid #e6eaf0;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(16,24,40,.04);}
+.chat-card{
+  border:1px solid #e6eaf0;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(16,24,40,.04);
+  display:flex; flex-direction:column;
+  height:calc(var(--vh) - var(--top-offset));
+}
 .chat-header{padding:12px 16px;border-bottom:1px solid #eef2f7;font-weight:800;color:#1f2b3a;}
-/* altezza fissa e scroll solo interno */
 .chat-body{
   padding:14px;
-  height:70vh;            /* ALTEZZA FISSA */
-  overflow-y:auto;        /* SCROLL SOLO QUI */
+  flex:1;
+  min-height:0;
+  overflow-y:auto;
   background:#fff;
   border-radius:0 0 14px 14px;
 }
+
 .msg-row{display:flex;gap:10px;margin:8px 0;}
 .msg{padding:10px 14px;border-radius:16px;border:1px solid;max-width:78%;line-height:1.45;font-size:15px;}
 .msg .meta{font-size:11px;opacity:.7;margin-top:6px;}
@@ -151,7 +168,21 @@ div[role="radiogroup"] label[data-baseweb="radio"]{
   margin-bottom:12px!important;border:1px solid #2F98C7;
 }
 div[role="radiogroup"] label[data-baseweb="radio"]:hover{background:#eef5ff;}
-label[data-baseweb="radio"]:has(input:checked){background:#2F98C7;color:#ffffff;font-weight:600;}
+label[data-baseweb="radio"]:has(input:checked){
+  background:#2F98C7;
+  color:#ffffff;
+  font-weight:600;
+}
+/* forza colore bianco anche ai figli */
+label[data-baseweb="radio"]:has(input:checked),
+label[data-baseweb="radio"]:has(input:checked) *{
+  color:#ffffff !important;
+}
+div[role="radiogroup"] label[data-baseweb="radio"]:has(input:checked):hover{
+  background:#2F98C7;
+  color:#ffffff !important;
+}
+
 /* evidenziatore ricerca */
 mark{ background:#fff59d; padding:0 .15em; border-radius:3px; }
 </style>
@@ -159,7 +190,7 @@ mark{ background:#fff59d; padding:0 .15em; border-radius:3px; }
 st.markdown(CSS, unsafe_allow_html=True)
 
 # --------- LAYOUT ---------
-left, right = st.columns([0.28, 0.72], gap='large')
+left, right = st.columns([0.32, 0.68], gap='large')  # ← aggiornata la proporzione
 
 # ===== LEFT PANE =====
 with left:
@@ -178,6 +209,40 @@ with left:
     choice = st.radio('', list(labels.keys()), index=1)
     nav = labels[choice]
 
+    st.markdown('---')
+    st.subheader("Impostazioni", divider="gray")
+    ss.temperature = st.slider("Temperature", 0.0, 1.0, float(ss.temperature), 0.05, help="Creatività del modello")
+    ss.max_tokens = st.slider("Max tokens risposta", 100, 2000, int(ss.max_tokens), 50)
+    ss.show_context_used = st.toggle("Mostra contesto usato", value=bool(ss.show_context_used))
+
+    st.markdown('---')
+    st.subheader("Utility chat", divider="gray")
+    col_util_a, col_util_b = st.columns(2)
+    with col_util_a:
+        if st.button("🧹 Svuota chat"):
+            ss.confirm_clear = True
+        if ss.confirm_clear:
+            st.warning("Confermi di voler svuotare la chat?")
+            cc1, cc2 = st.columns(2)
+            with cc1:
+                if st.button("✅ Conferma"):
+                    ss['chat_history'] = []
+                    ss.confirm_clear = False
+                    st.rerun()
+            with cc2:
+                if st.button("❌ Annulla"):
+                    ss.confirm_clear = False
+    with col_util_b:
+        if st.button("⬇️ Esporta chat"):
+            if ss['chat_history']:
+                md_lines = ["# Conversazione\n"]
+                for m in ss['chat_history']:
+                    who = "Utente" if m['role'] == 'user' else "Assistente"
+                    ts = m.get('ts', '')
+                    md_lines.append(f"**{who}** ({ts}):\n\n{m.get('content','')}\n")
+                md_str = "\n".join(md_lines)
+                st.download_button("Scarica .md", data=md_str, file_name="chat_export.md", mime="text/markdown")
+
     st.markdown("<div style='flex-grow:1'></div>", unsafe_allow_html=True)
     colA, colB = st.columns(2)
     with colA:
@@ -195,6 +260,30 @@ with left:
 with right:
     st.title('BENVENUTO !')
 
+    components.html("""
+    <script>
+    (function(){
+      function setVH(){
+        const h = window.innerHeight || document.documentElement.clientHeight;
+        (window.parent.document || document).documentElement.style.setProperty('--vh', h + 'px');
+      }
+      function setTopOffset(){
+        const doc = window.parent.document || document;
+        const card = doc.querySelector('.chat-card');
+        if(!card) return;
+        const rect = card.getBoundingClientRect();
+        const offset = Math.max(0, Math.round(rect.top));
+        doc.documentElement.style.setProperty('--top-offset', offset + 'px');
+      }
+      function recompute(){ setVH(); setTopOffset(); }
+      recompute();
+      window.addEventListener('resize', recompute);
+      const target = window.parent.document ? window.parent.document.body : document.body;
+      if (target && 'ResizeObserver' in window){ new ResizeObserver(recompute).observe(target); }
+    })();
+    </script>
+    """, height=0)
+
     if nav == 'Leggi documento':
         st.subheader('📄 Scegli il documento')
         st.info("Questa sezione verrà sistemata dopo. Nel frattempo usa la Chat.")
@@ -206,13 +295,15 @@ with right:
         else:
             st.info("Azure Search non configurato: risponderò senza contesto.")
 
-        # --- Barra di ricerca nella chat + separatore e spaziatori ---
         search_q = st.text_input("🔎 Cerca nella chat", value="", placeholder="Cerca messaggi…")
+        if search_q != ss.last_search_q:
+            ss.search_index = 0
+            ss.last_search_q = search_q
+
         spacer(1)
         st.markdown("---")
         spacer(1)
 
-        # --- util per timestamp e highlight ---
         rome_tz = pytz.timezone("Europe/Rome")
 
         def fmt_ts(ts_raw: str) -> str:
@@ -224,32 +315,71 @@ with right:
             except Exception:
                 return ts_raw
 
-        def _highlight(text: str, q: str) -> str:
+        def count_occurrences(text: str, q: str) -> int:
             if not q:
-                return html.escape(text).replace("\n", "<br>")
-            escaped = html.escape(text)
-            pat = re.compile(re.escape(q), re.IGNORECASE)
-            return pat.sub(lambda m: f"<mark>{m.group(0)}</mark>", escaped).replace("\n", "<br>")
+                return 0
+            return len(re.findall(re.escape(q), text, flags=re.IGNORECASE))
 
-        # --- Card chat ---
+        def highlight_nth(text: str, q: str, global_idx: int):
+            escaped = html.escape(text)
+            if not q:
+                return escaped.replace("\n", "<br>"), global_idx
+            pat = re.compile(re.escape(q), re.IGNORECASE)
+            matches = list(pat.finditer(escaped))
+            if not matches:
+                return escaped.replace("\n", "<br>"), global_idx
+            if global_idx < len(matches):
+                parts = []
+                last_end = 0
+                for i, m in enumerate(matches):
+                    parts.append(escaped[last_end:m.start()])
+                    if i == global_idx:
+                        parts.append(f"<mark>{m.group(0)}</mark>")
+                    else:
+                        parts.append(m.group(0))
+                    last_end = m.end()
+                parts.append(escaped[last_end:])
+                return "".join(parts).replace("\n", "<br>"), 0
+            else:
+                return escaped.replace("\n", "<br>"), global_idx - len(matches)
+
+        if search_q:
+            total_matches = sum(count_occurrences(m.get("content", ""), search_q) for m in ss["chat_history"])
+        else:
+            total_matches = 0
+            ss.search_index = 0
+
+        if search_q:
+            st.caption(f"Risultati totali: {total_matches}")
+            if total_matches > 0:
+                colnav1, colnav2, colnav3 = st.columns([1,1,3])
+                with colnav1:
+                    if st.button("◀️ Precedente"):
+                        ss.search_index = (ss.search_index - 1) % total_matches
+                with colnav2:
+                    if st.button("▶️ Successivo"):
+                        ss.search_index = (ss.search_index + 1) % total_matches
+                with colnav3:
+                    st.markdown(f"Match corrente: **{(ss.search_index % total_matches) + 1 if total_matches else 0} / {total_matches}**")
+            else:
+                st.caption("Nessun risultato per questa ricerca.")
+
         st.markdown('<div class="chat-card">', unsafe_allow_html=True)
         st.markdown('<div class="chat-header">Conversazione</div>', unsafe_allow_html=True)
 
-        # Messaggi da mostrare (filtrati se ricerca)
         messages_to_show = ss["chat_history"]
-        if search_q:
-            sq = search_q.strip().lower()
-            messages_to_show = [m for m in ss["chat_history"] if sq in m.get("content", "").lower()]
-            st.caption(f"Risultati: {len(messages_to_show)}")
-
-        # Corpo messaggi (scroll SOLO qui)
         st.markdown('<div class="chat-body" id="chat-body">', unsafe_allow_html=True)
         if not messages_to_show:
             st.markdown('<div class="small">Nessun messaggio. Fai una domanda.</div>', unsafe_allow_html=True)
         else:
+            remaining_idx = (ss.search_index % total_matches) if (search_q and total_matches > 0) else 0
             for m in messages_to_show:
                 role = m['role']
-                content_html = _highlight(m.get('content',''), search_q)
+                raw_text = m.get('content', '')
+                if search_q and total_matches > 0:
+                    content_html, remaining_idx = highlight_nth(raw_text, search_q, remaining_idx)
+                else:
+                    content_html = html.escape(raw_text).replace("\n", "<br>")
                 ts = fmt_ts(m.get('ts',''))
                 if role == 'user':
                     st.markdown(f"""
@@ -263,12 +393,10 @@ with right:
                           <div class='avatar ai'>A</div>
                           <div class='msg ai'>{content_html}<div class='meta'>{ts}</div></div>
                         </div>""", unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)  # chiude chat-body
+        st.markdown('</div>', unsafe_allow_html=True)
 
-        # --- placeholder per SPINNER SOPRA al form (quindi sopra al box di domanda) ---
         typing_ph = st.empty()
 
-        # --- autoscroll ---
         components.html("""
             <script>
             const el = window.parent.document.getElementById('chat-body');
@@ -276,62 +404,9 @@ with right:
             </script>
         """, height=0)
 
-        # Footer input
         st.markdown('<div class="chat-footer">', unsafe_allow_html=True)
         with st.form(key="chat_form", clear_on_submit=True):
             user_q = st.text_input("Scrivi la tua domanda", value="")
             sent = st.form_submit_button("Invia")
-        st.markdown('</div>', unsafe_allow_html=True)   # chiude chat-footer
-        st.markdown('</div>', unsafe_allow_html=True)   # chiude chat-card
-
-        # Invio: cerca su Azure Search (filtrato) + chiama il modello con spinner
-        if sent and user_q.strip():
-            ss['chat_history'].append({'role': 'user', 'content': user_q.strip(), 'ts': ts_now_it()})
-
-            # --- RICERCA NEL MOTORE ---
-            context_snippets, sources = [], []
-            try:
-                if not search_client:
-                    st.warning("Azure Search non disponibile. Risposta senza contesto.")
-                else:
-                    flt = safe_filter_eq(FILENAME_FIELD, ss.get("active_doc")) if ss.get("active_doc") else None
-                    results = search_client.search(
-                        search_text=user_q,
-                        filter=flt,
-                        top=5,
-                        query_type="simple",
-                    )
-                    for r in results:
-                        snippet = r.get("chunk") or r.get("content") or r.get("text")
-                        if snippet:
-                            context_snippets.append(str(snippet)[:400])
-                        fname = r.get(FILENAME_FIELD)
-                        if fname and fname not in sources:
-                            sources.append(fname)
-            except Exception as e:
-                st.error(f"Errore ricerca: {e}")
-
-            # --- CHIAMATA MODELLO con spinner SOPRA al form ---
-            try:
-                messages = build_chat_messages(user_q, context_snippets)
-                with typing_ph, st.spinner("Sto scrivendo…"):
-                    resp = client.chat.completions.create(
-                        model=AZURE_OPENAI_DEPLOYMENT,
-                        messages=messages,
-                        temperature=0.2,
-                        max_tokens=900,
-                    )
-                typing_ph.empty()
-                ai_text = resp.choices[0].message.content if resp.choices else "(nessuna risposta)"
-
-                if sources:
-                    import os as _os
-                    shown = [_os.path.basename(s.rstrip("/")) or s for s in sources]
-                    uniq = list(dict.fromkeys(shown))
-                    ai_text += "\n\n— 📎 Fonti: " + ", ".join(uniq[:6])
-
-                ss['chat_history'].append({'role': 'assistant', 'content': ai_text, 'ts': ts_now_it()})
-            except Exception as e:
-                typing_ph.empty()
-                ss['chat_history'].append({'role': 'assistant', 'content': f"Si è verificato un errore durante la generazione della risposta: {e}", 'ts': ts_now_it()})
-            st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</
