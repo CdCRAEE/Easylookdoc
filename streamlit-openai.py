@@ -652,7 +652,7 @@ with right:
                     )
                     seen = set()
                     for r in results:
-                    snippet = r.get("chunk") or r.get("content") or r.get("text")
+            snippet = r.get("chunk") or r.get("content") or r.get("text")
                     if snippet:
                         context_snippets.append(str(snippet)[:400])
                     raw_id = r.get(FILENAME_FIELD)
