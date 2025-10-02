@@ -316,7 +316,7 @@ label[data-baseweb="radio"]:has(input:checked) *{color:#ffffff !important;}
 }
 
 /* evidenziatore ricerca */
-mark{ background:#fff59d; padding:0 .15em; border-radius:3px; }
+mark{ background:#C8E7EA; padding:0 .15em; border-radius:3px; }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
