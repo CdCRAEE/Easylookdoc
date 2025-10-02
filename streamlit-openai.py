@@ -7,15 +7,7 @@ from azure.identity import ClientSecretCredential
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 import streamlit.components.v1 as components
-from io import BytesIO
-
-# import opzionale per Word (.docx)
-try:
-    from docx import Document  # pip install python-docx
-    HAS_DOCX = True
-except Exception:
-    HAS_DOCX = False
-
+from io import BytesIO # usato per eventuali export futuri
 st.set_page_config(page_title='EasyLook.DOC Chat', page_icon='💬', layout='wide')
 
 # --------- CONFIG ---------
@@ -312,43 +304,20 @@ with right:
                 ss['chat_history'] = []
                 st.rerun()
         with colu2:
-            # Export Word se disponibile; altrimenti fallback Markdown
-            if HAS_DOCX:
-                if st.button("Esporta chat (Word)"):
-                    if ss['chat_history']:
-                        doc = Document()
-                        doc.add_heading('Conversazione', 0)
-                        for m in ss['chat_history']:
-                            who = "Utente" if m['role'] == 'user' else "Assistente"
-                            ts = m.get('ts', '')
-                            doc.add_paragraph(f"{who} ({ts}):")
-                            doc.add_paragraph(m.get('content',''))
-                            doc.add_paragraph('')  # riga vuota
-                        buffer = BytesIO()
-                        doc.save(buffer)
-                        buffer.seek(0)
-                        st.download_button(
-                            label="Scarica .docx",
-                            data=buffer,
-                            file_name="chat_export.docx",
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        )
-            else:
-                st.info("Per esportare in Word installa il pacchetto 'python-docx'. Intanto puoi scaricare in Markdown.")
-                if st.button("Esporta chat (.md)"):
-                    if ss['chat_history']:
-                        md_lines = ["# Conversazione\n"]
-                        for m in ss['chat_history']:
-                            who = "Utente" if m['role'] == 'user' else "Assistente"
-                            ts = m.get('ts', '')
-                            md_lines.append(f"**{who}** ({ts}):\n\n{m.get('content','')}\n")
-                        md_str = "\n".join(md_lines)
-                        st.download_button(
-                            "Scarica .md",
-                            data=md_str,
-                            file_name="chat_export.md",
-                            mime="text/markdown"
-                        )
+            if st.button("Esporta chat (.md)"):
+                if ss['chat_history']:
+                    md_lines = ["# Conversazione\n"]
+                    for m in ss['chat_history']:
+                        who = "Utente" if m['role'] == 'user' else "Assistente"
+                        ts = m.get('ts', '')
+                        md_lines.append(f"**{who}** ({ts}):\n\n{m.get('content','')}\n")
+                    md_str = "\n".join(md_lines)
+                    st.download_button(
+                        "Scarica .md",
+                        data=md_str,
+                        file_name="chat_export.md",
+                        mime="text/markdown"
+                    )
 
         # --- Navigatori ricerca compatti, su UNA riga e sopra il separatore ---
         if search_q:
