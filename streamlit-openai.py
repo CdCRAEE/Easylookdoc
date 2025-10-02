@@ -106,8 +106,8 @@ CSS = """
 :root{
   --yellow:#FDF6B4; --yellow-border:#FDF6B4;
   --ai-bg:#F1F6FA; --ai-border:#F1F6FA; --text:#1f2b3a;
-  --vh: 100vh;
-  --top-offset: 0px;
+  --vh: 100vh;          /* aggiornato via JS */
+  --top-offset: 0px;    /* aggiornato via JS */
 }
 
 /* blocco scroll pagina e altezza fissa */
@@ -121,12 +121,12 @@ html, body{ height:100%; overflow:hidden; }
   overflow:hidden;
 }
 
-/* colonna sinistra bianca più larga */
+/* colonna sinistra bianca (coerente con colonna Streamlit) */
 .block-container::before{
   content:"";
   position:absolute;
   top:0; bottom:0; left:0;
-  width:32%;    /* allargata a 32% */
+  width:32%;    /* fascia bianca */
   background:#ffffff;
   box-shadow:inset -1px 0 0 #e5e7eb;
   pointer-events:none;
@@ -135,12 +135,15 @@ html, body{ height:100%; overflow:hidden; }
 
 .block-container > *{ position:relative; z-index:1; }
 
+/* Card chat a tutta altezza (meno lo spazio sopra misurato) */
 .chat-card{
   border:1px solid #e6eaf0;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(16,24,40,.04);
   display:flex; flex-direction:column;
   height:calc(var(--vh) - var(--top-offset));
 }
 .chat-header{padding:12px 16px;border-bottom:1px solid #eef2f7;font-weight:800;color:#1f2b3a;}
+
+/* corpo chat con scroll interno UNICO */
 .chat-body{
   padding:14px;
   flex:1;
@@ -168,19 +171,17 @@ div[role="radiogroup"] label[data-baseweb="radio"]{
   margin-bottom:12px!important;border:1px solid #2F98C7;
 }
 div[role="radiogroup"] label[data-baseweb="radio"]:hover{background:#eef5ff;}
+
+/* selezionato: sfondo blu + forza testo bianco anche nei figli */
 label[data-baseweb="radio"]:has(input:checked){
-  background:#2F98C7;
-  color:#ffffff;
-  font-weight:600;
+  background:#2F98C7; color:#ffffff; font-weight:600;
 }
-/* forza colore bianco anche ai figli */
 label[data-baseweb="radio"]:has(input:checked),
 label[data-baseweb="radio"]:has(input:checked) *{
   color:#ffffff !important;
 }
 div[role="radiogroup"] label[data-baseweb="radio"]:has(input:checked):hover{
-  background:#2F98C7;
-  color:#ffffff !important;
+  background:#2F98C7; color:#ffffff !important;
 }
 
 /* evidenziatore ricerca */
@@ -190,7 +191,7 @@ mark{ background:#fff59d; padding:0 .15em; border-radius:3px; }
 st.markdown(CSS, unsafe_allow_html=True)
 
 # --------- LAYOUT ---------
-left, right = st.columns([0.32, 0.68], gap='large')  # ← aggiornata la proporzione
+left, right = st.columns([0.32, 0.68], gap='large')  # coerente con la fascia bianca
 
 # ===== LEFT PANE =====
 with left:
@@ -260,6 +261,7 @@ with left:
 with right:
     st.title('BENVENUTO !')
 
+    # Script per altezza dinamica e offset
     components.html("""
     <script>
     (function(){
@@ -295,6 +297,7 @@ with right:
         else:
             st.info("Azure Search non configurato: risponderò senza contesto.")
 
+        # --- Ricerca nella chat (navigazione match) ---
         search_q = st.text_input("🔎 Cerca nella chat", value="", placeholder="Cerca messaggi…")
         if search_q != ss.last_search_q:
             ss.search_index = 0
@@ -304,6 +307,7 @@ with right:
         st.markdown("---")
         spacer(1)
 
+        # --- util per timestamp e ricerca ---
         rome_tz = pytz.timezone("Europe/Rome")
 
         def fmt_ts(ts_raw: str) -> str:
@@ -364,10 +368,13 @@ with right:
             else:
                 st.caption("Nessun risultato per questa ricerca.")
 
+        # --- Card chat ---
         st.markdown('<div class="chat-card">', unsafe_allow_html=True)
         st.markdown('<div class="chat-header">Conversazione</div>', unsafe_allow_html=True)
 
         messages_to_show = ss["chat_history"]
+
+        # Corpo messaggi (scroll solo qui)
         st.markdown('<div class="chat-body" id="chat-body">', unsafe_allow_html=True)
         if not messages_to_show:
             st.markdown('<div class="small">Nessun messaggio. Fai una domanda.</div>', unsafe_allow_html=True)
@@ -393,10 +400,12 @@ with right:
                           <div class='avatar ai'>A</div>
                           <div class='msg ai'>{content_html}<div class='meta'>{ts}</div></div>
                         </div>""", unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)  # chiude chat-body
 
+        # placeholder per spinner SOPRA al form
         typing_ph = st.empty()
 
+        # autoscroll nel box chat
         components.html("""
             <script>
             const el = window.parent.document.getElementById('chat-body');
@@ -404,9 +413,77 @@ with right:
             </script>
         """, height=0)
 
+        # Footer input
         st.markdown('<div class="chat-footer">', unsafe_allow_html=True)
         with st.form(key="chat_form", clear_on_submit=True):
             user_q = st.text_input("Scrivi la tua domanda", value="")
             sent = st.form_submit_button("Invia")
-        st.markdown('</div>', unsafe_allow_html=True)
-        st.markdown('</
+        st.markdown('</div>', unsafe_allow_html=True)   # chiude chat-footer
+        st.markdown('</div>', unsafe_allow_html=True)   # chiude chat-card  ✅ (questa mancava)
+
+        # Invio: cerca su Azure Search + chiamata modello
+        if sent and user_q.strip():
+            ss['chat_history'].append({'role': 'user', 'content': user_q.strip(), 'ts': ts_now_it()})
+
+            # Ricerca nel motore
+            context_snippets, sources = [], []
+            try:
+                if not search_client:
+                    st.warning("Azure Search non disponibile. Risposta senza contesto.")
+                else:
+                    flt = safe_filter_eq(FILENAME_FIELD, ss.get("active_doc")) if ss.get("active_doc") else None
+                    results = search_client.search(
+                        search_text=user_q,
+                        filter=flt,
+                        top=5,
+                        query_type="simple",
+                    )
+                    for r in results:
+                        snippet = r.get("chunk") or r.get("content") or r.get("text")
+                        if snippet:
+                            context_snippets.append(str(snippet)[:400])
+                        fname = r.get(FILENAME_FIELD)
+                        if fname and fname not in sources:
+                            sources.append(fname)
+            except Exception as e:
+                st.error(f"Errore ricerca: {e}")
+
+            # Chiamata modello
+            try:
+                messages = build_chat_messages(user_q, context_snippets)
+                with typing_ph, st.spinner("Sto scrivendo…"):
+                    resp = client.chat.completions.create(
+                        model=AZURE_OPENAI_DEPLOYMENT,
+                        messages=messages,
+                        temperature=float(ss.temperature),
+                        max_tokens=int(ss.max_tokens),
+                    )
+                typing_ph.empty()
+                ai_text = resp.choices[0].message.content if resp.choices else "(nessuna risposta)"
+
+                if sources:
+                    import os as _os
+                    shown = [_os.path.basename(s.rstrip("/")) or s for s in sources]
+                    uniq = list(dict.fromkeys(shown))
+                    ai_text += "\n\n— 📎 Fonti: " + ", ".join(uniq[:6])
+
+                ss['chat_history'].append({'role': 'assistant', 'content': ai_text, 'ts': ts_now_it()})
+
+                if ss.show_context_used and (context_snippets or sources):
+                    with st.expander("Contesto usato per questa risposta"):
+                        if sources:
+                            st.markdown("**Fonti individuate**")
+                            for s in sources[:6]:
+                                if isinstance(s, str) and (s.startswith("http://") or s.startswith("https://")):
+                                    st.markdown(f"- [{s}]({s})")
+                                else:
+                                    st.markdown(f"- {s}")
+                        if context_snippets:
+                            st.markdown("**Snippet (max 400 char ciascuno)**")
+                            for i, sn in enumerate(context_snippets, 1):
+                                st.code(sn, language="markdown")
+
+            except Exception as e:
+                typing_ph.empty()
+                ss['chat_history'].append({'role': 'assistant', 'content': f"Si è verificato un errore durante la generazione della risposta: {e}", 'ts': ts_now_it()})
+            st.rerun()
