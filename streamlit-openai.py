@@ -91,7 +91,6 @@ def normalize_source_id(raw: str) -> tuple[str, str]:
         return clean, display_name_from_url(clean)
     return decoded, decoded
 
-
 def spacer(n=1):
     for _ in range(n):
         st.write("")
@@ -307,21 +306,38 @@ html, body{ height:100%; overflow:hidden; }
 }
 .block-container > *{ position:relative; z-index:1; }
 
-/* Chat card in grid: header | body scroll | footer (footer sempre visibile) */
 .chat-card{
-  border:1px solid #e6eaf0;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(16,24,40,.04);
-  display:grid; grid-template-rows:auto 1fr auto;
+  border:1px solid #e6eaf0;
+  border-radius:14px;
+  background:#fff;
+  box-shadow:0 2px 8px rgba(16,24,40,.04);
+  display:grid;
+  grid-template-rows:auto minmax(0,1fr) auto; /* differenza qui */
   height:calc(var(--vh) - var(--top-offset));
+  overflow:hidden; /* differenza qui */
 }
-.chat-header{padding:12px 16px;border-bottom:1px solid #eef2f7;font-weight:800;color:#1f2b3a;}
+.chat-header{
+  padding:12px 16px;
+  border-bottom:1px solid #eef2f7;
+  font-weight:800;
+  color:#1f2b3a;
+}
 .chat-body{
   padding:14px; 
-  overflow-y:auto; 
-  min-height:0;                  /* evita che il body spinga fuori il footer */
+  overflow:auto;      /* differenza qui */
+  min-height:0;       /* evita che il body spinga fuori il footer */
+  background:#fff;
+  -webkit-overflow-scrolling: touch; 
+  overscroll-behavior: contain;
+}
+.chat-footer{
+  padding:10px 12px 12px;
+  border-top:1px solid #eef2f7;
+  border-radius:0 0 14px 14px;
   background:#fff;
 }
-.chat-footer{padding:10px 12px 12px; border-top:1px solid #eef2f7; border-radius:0 0 14px 14px; background:#fff;}
 
+/* da qui in giù puoi lasciare invariato */
 .msg-row{display:flex;gap:10px;margin:8px 0;}
 .msg{padding:10px 14px;border-radius:16px;border:1px solid;max-width:78%;line-height:1.45;font-size:15px;}
 .msg .meta{font-size:11px;opacity:.7;margin-top:6px;}
@@ -386,16 +402,15 @@ with left:
     st.markdown('---')
 
     labels = {
-        "📤 Documenti": "Leggi documento",
+        "📂 Documenti": "Leggi documento",
         "💬 Chat": "Chat",
         "🕒 Cronologia": "Cronologia",
-        "📂 Carica documenti": "Carica documenti",
     }
     choice = st.radio('', list(labels.keys()), index=1)
     nav = labels[choice]
 
     # loghi in basso
-    spacer(3)
+    spacer(10)
     st.markdown("<div style='flex-grow:1'></div>", unsafe_allow_html=True)
     colA, colB = st.columns(2)
     with colA:
@@ -497,7 +512,7 @@ with right:
             ss.last_search_q = search_q
 
         # Utility richieste (destra)
-        colu1, colu2, _ = st.columns([1,1,6])
+        colu1, colu2, _ = st.columns([2,2,4])
         with colu1:
             if st.button("Svuota chat"):
                 ss['chat_history'] = []
