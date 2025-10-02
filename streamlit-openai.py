@@ -1,4 +1,4 @@
-import os, html
+import os, html, re
 import pytz
 import streamlit as st
 from datetime import datetime, timezone
@@ -29,6 +29,10 @@ def ts_now_it():
     return datetime.now(local_tz).strftime("%d/%m/%Y %H:%M:%S")
 
 # --------- HELPERS ---------
+def spacer(n=1):
+    for _ in range(n):
+        st.write("")
+
 def safe_filter_eq(field, value):
     if not value:
         return None
@@ -122,7 +126,13 @@ CSS = """
 .chat-card{border:1px solid #e6eaf0;border-radius:14px;background:#fff;box-shadow:0 2px 8px rgba(16,24,40,.04);}
 .chat-header{padding:12px 16px;border-bottom:1px solid #eef2f7;font-weight:800;color:#1f2b3a;}
 /* altezza fissa e scroll solo interno */
-.chat-body{padding:14px;height:70vh;overflow-y:auto;background:#fff;border-radius:0 0 14px 14px;}
+.chat-body{
+  padding:14px;
+  height:70vh;            /* ALTEZZA FISSA */
+  overflow-y:auto;        /* SCROLL SOLO QUI */
+  background:#fff;
+  border-radius:0 0 14px 14px;
+}
 .msg-row{display:flex;gap:10px;margin:8px 0;}
 .msg{padding:10px 14px;border-radius:16px;border:1px solid;max-width:78%;line-height:1.45;font-size:15px;}
 .msg .meta{font-size:11px;opacity:.7;margin-top:6px;}
@@ -142,6 +152,8 @@ div[role="radiogroup"] label[data-baseweb="radio"]{
 }
 div[role="radiogroup"] label[data-baseweb="radio"]:hover{background:#eef5ff;}
 label[data-baseweb="radio"]:has(input:checked){background:#2F98C7;color:#ffffff;font-weight:600;}
+/* evidenziatore ricerca */
+mark{ background:#fff59d; padding:0 .15em; border-radius:3px; }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -161,7 +173,7 @@ with left:
         "📤 Origine": "Leggi documento",
         "💬 Chat": "Chat",
         "🕒 Cronologia": "Cronologia",
-	"📂 Carica documenti": "Carica documenti",
+        "📂 Carica documenti": "Carica documenti",
     }
     choice = st.radio('', list(labels.keys()), index=1)
     nav = labels[choice]
@@ -194,49 +206,75 @@ with right:
         else:
             st.info("Azure Search non configurato: risponderò senza contesto.")
 
-        # Card chat
+        # --- Barra di ricerca nella chat + separatore e spaziatori ---
+        search_q = st.text_input("🔎 Cerca nella chat", value="", placeholder="Cerca messaggi…")
+        spacer(1)
+        st.markdown("---")
+        spacer(1)
+
+        # --- util per timestamp e highlight ---
+        rome_tz = pytz.timezone("Europe/Rome")
+
+        def fmt_ts(ts_raw: str) -> str:
+            try:
+                if "T" in ts_raw and ("+" in ts_raw or "Z" in ts_raw):
+                    dt = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))
+                    return dt.astimezone(rome_tz).strftime('%d/%m %H:%M')
+                return ts_raw
+            except Exception:
+                return ts_raw
+
+        def _highlight(text: str, q: str) -> str:
+            if not q:
+                return html.escape(text).replace("\n", "<br>")
+            escaped = html.escape(text)
+            pat = re.compile(re.escape(q), re.IGNORECASE)
+            return pat.sub(lambda m: f"<mark>{m.group(0)}</mark>", escaped).replace("\n", "<br>")
+
+        # --- Card chat ---
         st.markdown('<div class="chat-card">', unsafe_allow_html=True)
         st.markdown('<div class="chat-header">Conversazione</div>', unsafe_allow_html=True)
 
-        # Corpo messaggi
+        # Messaggi da mostrare (filtrati se ricerca)
+        messages_to_show = ss["chat_history"]
+        if search_q:
+            sq = search_q.strip().lower()
+            messages_to_show = [m for m in ss["chat_history"] if sq in m.get("content", "").lower()]
+            st.caption(f"Risultati: {len(messages_to_show)}")
+
+        # Corpo messaggi (scroll SOLO qui)
         st.markdown('<div class="chat-body" id="chat-body">', unsafe_allow_html=True)
-        if not ss['chat_history']:
+        if not messages_to_show:
             st.markdown('<div class="small">Nessun messaggio. Fai una domanda.</div>', unsafe_allow_html=True)
         else:
-            for m in ss['chat_history']:
+            for m in messages_to_show:
                 role = m['role']
-                content = html.escape(m['content']).replace('\n', '<br>')
-                try:
-                    ts = datetime.fromisoformat(m['ts']).strftime('%d/%m %H:%M')
-                except Exception:
-                    ts = m.get('ts', '')
+                content_html = _highlight(m.get('content',''), search_q)
+                ts = fmt_ts(m.get('ts',''))
                 if role == 'user':
                     st.markdown(f"""
                         <div class='msg-row' style='justify-content:flex-end;'>
-                          <div class='msg user'>
-                            {content}
-                            <div class='meta'>{ts}</div>
-                          </div>
+                          <div class='msg user'>{content_html}<div class='meta'>{ts}</div></div>
                           <div class='avatar user'>U</div>
                         </div>""", unsafe_allow_html=True)
                 else:
                     st.markdown(f"""
                         <div class='msg-row'>
                           <div class='avatar ai'>A</div>
-                          <div class='msg ai'>
-                            {content}
-                            <div class='meta'>{ts}</div>
-                          </div>
+                          <div class='msg ai'>{content_html}<div class='meta'>{ts}</div></div>
                         </div>""", unsafe_allow_html=True)
         st.markdown('</div>', unsafe_allow_html=True)  # chiude chat-body
 
-        # autoscroll
-        components.html('''
+        # --- placeholder per SPINNER SOPRA al form (quindi sopra al box di domanda) ---
+        typing_ph = st.empty()
+
+        # --- autoscroll ---
+        components.html("""
             <script>
             const el = window.parent.document.getElementById('chat-body');
             if (el) { el.scrollTop = el.scrollHeight; }
             </script>
-        ''', height=0)
+        """, height=0)
 
         # Footer input
         st.markdown('<div class="chat-footer">', unsafe_allow_html=True)
@@ -246,11 +284,9 @@ with right:
         st.markdown('</div>', unsafe_allow_html=True)   # chiude chat-footer
         st.markdown('</div>', unsafe_allow_html=True)   # chiude chat-card
 
-        # Logica domanda/risposta
+        # Invio: cerca su Azure Search (filtrato) + chiama il modello con spinner
         if sent and user_q.strip():
-            ss['chat_history'].append(
-                {'role': 'user', 'content': user_q.strip(), 'ts': ts_now_it()}
-            )
+            ss['chat_history'].append({'role': 'user', 'content': user_q.strip(), 'ts': ts_now_it()})
 
             # --- RICERCA NEL MOTORE ---
             context_snippets, sources = [], []
@@ -275,16 +311,17 @@ with right:
             except Exception as e:
                 st.error(f"Errore ricerca: {e}")
 
-            # --- CHIAMATA MODELLO ---
+            # --- CHIAMATA MODELLO con spinner SOPRA al form ---
             try:
                 messages = build_chat_messages(user_q, context_snippets)
-                with st.spinner("Sto scrivendo…"):
+                with typing_ph, st.spinner("Sto scrivendo…"):
                     resp = client.chat.completions.create(
                         model=AZURE_OPENAI_DEPLOYMENT,
                         messages=messages,
                         temperature=0.2,
                         max_tokens=900,
                     )
+                typing_ph.empty()
                 ai_text = resp.choices[0].message.content if resp.choices else "(nessuna risposta)"
 
                 if sources:
@@ -293,11 +330,8 @@ with right:
                     uniq = list(dict.fromkeys(shown))
                     ai_text += "\n\n— 📎 Fonti: " + ", ".join(uniq[:6])
 
-                ss['chat_history'].append(
-                    {'role': 'assistant', 'content': ai_text, 'ts': ts_now_it()}
-                )
+                ss['chat_history'].append({'role': 'assistant', 'content': ai_text, 'ts': ts_now_it()})
             except Exception as e:
-                ss['chat_history'].append(
-                    {'role': 'assistant', 'content': f"Si è verificato un errore durante la generazione della risposta: {e}", 'ts': ts_now_it()}
-                )
+                typing_ph.empty()
+                ss['chat_history'].append({'role': 'assistant', 'content': f"Si è verificato un errore durante la generazione della risposta: {e}", 'ts': ts_now_it()})
             st.rerun()
