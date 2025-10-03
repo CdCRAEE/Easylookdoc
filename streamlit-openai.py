@@ -633,38 +633,38 @@ with right:
             </script>
         """, height=0)
 
-        # --- Invio: Azure Search (contesto) + modello ---
+# --- Invio: Azure Search (contesto) + modello ---
         if sent and user_q.strip():
             ss['chat_history'].append({'role':'user','content':user_q.strip(),'ts':ts_now_it()})
 
             # RICERCA NEL MOTORE (con eventuale filtro documento attivo)
-context_snippets, sources = [], []
-try:
-    if not search_client:
-        st.warning("Azure Search non disponibile. Risposta senza contesto.")
-    else:
-        flt = safe_filter_eq(FILENAME_FIELD, ss.get("active_doc")) if ss.get("active_doc") else None
-        results = search_client.search(
-            search_text=user_q,
-            filter=flt,
-            top=5,
-            query_type="simple",
-        )
-        seen = set()
-        for r in results:
-            snippet = r.get("chunk") or r.get("content") or r.get("text")
-            if snippet:
-                context_snippets.append(str(snippet)[:400])
+            context_snippets, sources = [], []
+            try:
+                if not search_client:
+                    st.warning("Azure Search non disponibile. Risposta senza contesto.")
+                else:
+                    flt = safe_filter_eq(FILENAME_FIELD, ss.get("active_doc")) if ss.get("active_doc") else None
+                    results = search_client.search(
+                        search_text=user_q,
+                        filter=flt,
+                        top=5,
+                        query_type="simple",
+                    )
+                    seen = set()
+                    for r in results:
+                        snippet = r.get("chunk") or r.get("content") or r.get("text")
+                        if snippet:
+                            context_snippets.append(str(snippet)[:400])
 
-            raw_id = r.get(FILENAME_FIELD)
-            if raw_id:
-                url, name = normalize_source_id(str(raw_id))
-                key = (url or "").lower()
-                if key not in seen:
-                    seen.add(key)
-                    sources.append({"url": url, "name": name})
-except Exception as e:
-    st.error(f"Errore ricerca: {e}")
+                        raw_id = r.get(FILENAME_FIELD)
+                        if raw_id:
+                            url, name = normalize_source_id(str(raw_id))
+                            key = (url or "").lower()
+                            if key not in seen:
+                                seen.add(key)
+                                sources.append({"url": url, "name": name})
+            except Exception as e:
+                st.error(f"Errore ricerca: {e}")
 
             # CHIAMATA MODELLO con contesto
             try:
