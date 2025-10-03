@@ -357,13 +357,11 @@ with left:
         st.markdown('')
     st.markdown('---')
 
-    labels = {
-    labels = {
-        "📂 Documenti": "Leggi documento",
-        "💬 Chat": "Chat",
-        "🕒 Cronologia": "Cronologia",
-    }
-    ss.setdefault("main_nav", "💬 Chat")  # default
+labels = {
+    "📂 Documenti": "Leggi documento",
+    "💬 Chat": "Chat",
+    "🕒 Cronologia": "Cronologia",
+}
     '',
     list(labels.keys()),
     index=list(labels.keys()).index(ss["main_nav"]) if ss.get("main_nav") in labels else 1,
