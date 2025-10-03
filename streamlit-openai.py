@@ -9,7 +9,8 @@ from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 from azure.storage.blob import BlobServiceClient, BlobSasPermissions, generate_blob_sas
-from io import BytesIO # usato per eventuali export futuri
+from io import BytesIO  # usato per eventuali export futuri
+
 st.set_page_config(page_title='EasyLook.DOC Chat', page_icon='💬', layout='wide')
 
 
@@ -35,6 +36,7 @@ CONTAINER_OVERRIDES = {
 
 # --------- TIMEZONE ---------
 local_tz = pytz.timezone("Europe/Rome")
+
 def ts_now_it():
     return datetime.now(local_tz).strftime("%d/%m/%Y %H:%M:%S")
 
@@ -44,7 +46,7 @@ def ts_now_it():
 import base64 as _b64, posixpath as _pp
 from urllib.parse import urlparse as _urlparse, urlunparse as _urlunparse, unquote as _unquote
 
-_B64_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-")
+_B64_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/_-=")
 
 def _looks_like_b64(s: str) -> bool:
     if not s or len(s) < 8 or " " in s:
@@ -112,8 +114,8 @@ def build_chat_messages(user_q, context_snippets):
 def fmt_ts(ts_raw: str) -> str:
     try:
         if "T" in ts_raw and ("+" in ts_raw or "Z" in ts_raw):
-            dt = datetime.fromisoformat(ts_raw.replace("Z","+00:00"))
-            return dt.astimezone(local_tz).strftime('%d/%m %H:%M')
+            dtv = datetime.fromisoformat(ts_raw.replace("Z","+00:00"))
+            return dtv.astimezone(local_tz).strftime('%d/%m %H:%M')
         return ts_raw
     except Exception:
         return ts_raw
@@ -149,7 +151,7 @@ def upn_to_container(upn: str) -> str:
     Converte 'nome.cognome@dominio' -> 'c-n-cognome'
     Esempi:
       'andrea.cervini@...'      -> 'c-a-cervini'
-      'francesca.d\'angelo@...' -> 'c-f-dangelo'
+      'francesca.d'angelo@...'  -> 'c-f-dangelo'
       'luca.maria.rossi@...'    -> 'c-l-rossi'  (cognome = ultimo token)
       'chiara@...'              -> 'c-c-chiara' (fallback se manca cognome)
     """
@@ -157,26 +159,23 @@ def upn_to_container(upn: str) -> str:
     if upn_l in CONTAINER_OVERRIDES:
         return CONTAINER_OVERRIDES[upn_l]
  
-    left = upn_l.split("@", 1)[0]                # es. 'franco.ferrigno'
+    left = upn_l.split("@", 1)[0]
     parts = [p for p in re.split(r"[^a-z0-9]+", left) if p]
     if not parts:
-        # fallback robusto: tutto 'user'
         return "c-u-user"
  
-    first  = parts[0]
-    last   = parts[-1] if len(parts) > 1 else parts[0]
+    first = parts[0]
+    last = parts[-1] if len(parts) > 1 else parts[0]
     initial = _slugify_ascii(first)[:1] or "x"
     surname = _slugify_ascii(last) or "user"
  
     name = f"c-{initial}-{surname}"
-    # regole Azure container: 3-63 char, solo [a-z0-9-], start/end alfanumerico
     name = re.sub(r"-+", "-", name).strip("-")
     if len(name) < 3:
         name = (name + "000")[:3]
     if len(name) > 63:
         name = name[:63].rstrip("-")
     if not re.match(r"^[a-z0-9].*[a-z0-9]$", name):
-        # forza inizio/fine alfanumerico in casi limite
         name = re.sub(r"^[^a-z0-9]+", "", name)
         name = re.sub(r"[^a-z0-9]+$", "", name)
         if len(name) < 3:
@@ -198,7 +197,7 @@ def make_upload_sas(container: str, blob_name: str, ttl_minutes: int = 10) -> st
         container_name=container,
         blob_name=blob_name,
         user_delegation_key=udk,
-        permission=BlobSasPermissions(create=True, write=True),  # nuovo blob o overwrite controllato
+        permission=BlobSasPermissions(create=True, write=True),
         expiry=now + dt.timedelta(minutes=ttl_minutes),
     )
     return f"https://{ACCOUNT_NAME}.blob.core.windows.net/{container}/{blob_name}?{sas}"
@@ -208,8 +207,6 @@ def ensure_container(svc: BlobServiceClient, container: str):
     try:
         svc.create_container(container)
     except Exception:
-        # Se esiste già o mancano permessi di create, proseguiamo comunque:
-        # l'upload via SAS funzionerà se il container esiste.
         pass
 
 def sas_for_user_blob(upn: str, blob_name: str, ttl_minutes: int = 15) -> str:
@@ -219,9 +216,7 @@ def sas_for_user_blob(upn: str, blob_name: str, ttl_minutes: int = 15) -> str:
     """
     container = upn_to_container(upn)
     svc = _svc()
-    # Tenta di assicurare il container (se l'identità dell'app ha i permessi)
     ensure_container(svc, container)
-    # Riusa la tua funzione esistente per creare la SAS
     return make_upload_sas(container, blob_name, ttl_minutes=ttl_minutes)
 
 # --------- CLIENTS ---------
@@ -295,9 +290,9 @@ CSS = """
   overflow: visible;
 }
 
-/* fascia bianca sinistra coerente con colonna */
-.block-container::before{
-  content:""; position:absolute; top:0; bottom:0; left:0;
+/* fascia bianca sinistra: ora su .stApp e fixed, così segue sempre lo scroll */
+.stApp::before{
+  content:""; position:fixed; top:0; bottom:0; left:0;
   width:32%; background:#ffffff; box-shadow:inset -1px 0 0 #e5e7eb;
   pointer-events:none; z-index:0;
 }
@@ -309,12 +304,10 @@ CSS = """
   background:#fff;
   box-shadow:0 2px 8px rgba(16,24,40,.04);
   display:grid;
-  grid-template-rows:auto minmax(0,1fr) auto; /* differenza qui */
-  height: auto;                /* la card cresce con il contenuto */
-  min-height: calc(var(--vh) - var(--top-offset));  /* non forza, ma garantisce spazio minimo */
-  overflow: visible;           /* niente gabbia */
+  grid-template-rows:auto minmax(0,1fr) auto;
+  min-height: calc(var(--vh) - var(--top-offset)); /* spazio minimo */
+  overflow: visible;   /* niente gabbia */
 }
-
 .chat-header{
   padding:12px 16px;
   border-bottom:1px solid #eef2f7;
@@ -322,11 +315,12 @@ CSS = """
   color:#1f2b3a;
 }
 .chat-body{
-  padding:14px; 
-  overflow: auto;
-  min-height: 0;
+  padding:14px;
+  overflow:auto;
+  min-height:0;
+  background:#fff;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior: auto;   /* consente lo scroll a cascata */
+  overscroll-behavior: auto; /* consente lo scroll a cascata */
 }
 .chat-footer{
   padding:10px 12px 12px;
@@ -335,11 +329,10 @@ CSS = """
   background:#fff;
 }
 
-/* da qui in giù puoi lasciare invariato */
 .msg-row{display:flex;gap:10px;margin:8px 0;}
 .msg{padding:10px 14px;border-radius:16px;border:1px solid;max-width:78%;line-height:1.45;font-size:15px;}
 .msg .meta{font-size:11px;opacity:.7;margin-top:6px;}
-.msg.ai{background:var(--ai-bg);border-color:var(--ai-border);color:var(--text);}
+.msg.ai{background:var(--ai-bg);border-color:var(--ai-border);color:var(--text);} 
 .msg.user{background:var(--yellow);border-color:var(--yellow-border);color:#2b2b2b;margin-left:auto;}
 .avatar{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;}
 .avatar.ai{background:#d9e8ff;color:#123;}
@@ -358,48 +351,30 @@ label[data-baseweb="radio"]:has(input:checked),
 label[data-baseweb="radio"]:has(input:checked) *{color:#ffffff !important;}
 
 /* stile per tutti i pulsanti st.button */
-.stButton>button{
-  border:1px solid #2F98C7 !important;
-  color:#2F98C7 !important;
-  background:#fff !important;
-  border-radius:8px !important;
-}
-.stButton>button:hover{
-  background:#eef5ff !important;
-}
+.stButton>button{border:1px solid #2F98C7 !important;color:#2F98C7 !important;background:#fff !important;border-radius:8px !important;}
+.stButton>button:hover{background:#eef5ff !important;}
 
-/* Blocca la colonna sinistra */
+/* Blocca la colonna sinistra ma permetti crescita oltre 100vh */
 div[data-testid="column"] > div:first-child {
   position: sticky;
   top: 0;
-  height: 100vh;
-  overflow-y: auto;
+  min-height: 100vh;  /* almeno viewport */
+  height: auto;       /* consente crescita */
+  overflow: visible;  /* niente scroll forzato interno */
 }
 
 /* Permetti lo scroll globale */
-html, body, .stApp {
-  height: auto !important;
-  overflow: auto !important;
-}
+html, body, .stApp { height: auto !important; overflow: auto !important; }
 
 /* --- NAV ricerca compatta --- */
-#search-nav .stButton>button{
-  padding:4px 10px;
-  font-size:12px;
-  line-height:1.1;
-  height:auto;
-  border-radius:8px;
-}
-#search-nav .counter{
-  font-size:12px;
-  color:#1f2b3a;
-  display:flex; align-items:center; height:100%;
-}
+#search-nav .stButton>button{padding:4px 10px;font-size:12px;line-height:1.1;height:auto;border-radius:8px;}
+#search-nav .counter{font-size:12px;color:#1f2b3a;display:flex; align-items:center; height:100%;}
 
 /* evidenziatore ricerca */
 mark{ background:#C8E7EA; padding:0 .15em; border-radius:3px; }
 </style>
 """
+
 st.markdown(CSS, unsafe_allow_html=True)
 
 # --------- LAYOUT ---------
@@ -455,11 +430,16 @@ with right:
                 if not paths:
                     st.info("Nessun documento trovato nell'indice (controlla che il campo sia facetable e l'indice popolato).")
                 else:
-                    import os as _os
-                    display = [normalize_source_id(p)[1] for p in paths]
-                    idx = paths.index(ss["active_doc"]) if ss.get("active_doc") in paths else 0
-                    selected_label = st.selectbox("Seleziona documento", display, index=idx)
-                    selected_path = paths[display.index(selected_label)]
+                    # Costruisco coppie (nome_legibile, path) per evitare ambiguità in caso di nomi duplicati
+                    display_items = [(normalize_source_id(p)[1], p) for p in paths]
+                    names = [n for n, _ in display_items]
+                    # indice selezionato coerente con active_doc
+                    idx = 0
+                    if ss.get("active_doc") in paths:
+                        idx = paths.index(ss["active_doc"])  # mantiene selezione attuale
+                    selected_label = st.selectbox("Seleziona documento", names, index=idx)
+                    # mapping nome -> path (se duplica, l'ultimo vince: in genere OK; per piena robustezza servirebbe UI diversa)
+                    selected_path = dict(display_items)[selected_label]
                     if selected_path != ss.get("active_doc"):
                         ss["active_doc"] = selected_path
                         st.success(f"Filtro attivo su: {selected_label}")
@@ -469,7 +449,7 @@ with right:
             except Exception as e:
                 st.error(f"Errore nel recupero dell'elenco documenti: {e}")
 
-       # ======= SEZIONE: Upload per-utente con SAS =======
+        # ======= SEZIONE: Upload per-utente con SAS =======
         st.divider()
         with st.expander("📂 Carica un nuovo documento"):
             if ss.get("user_upn"):
@@ -495,7 +475,7 @@ with right:
                         st.write("URL (valida 15 minuti):")
                         st.code(upload_url, language="text")
 
-                        # Se vuoi caricare direttamente dal backend Streamlit, puoi fare una PUT:
+                        # Esempio di upload diretto via requests (opzionale)
                         # import requests
                         # r = requests.put(upload_url, data=uploaded.getvalue(), headers={"x-ms-blob-type": "BlockBlob"})
                         # if r.status_code in (201, 202):
@@ -512,8 +492,14 @@ with right:
     elif nav == 'Chat':
         st.subheader('💬 Chiedi quello che vuoi')
 
+        # Messaggio dinamico su dove cerco
         if search_client:
-            st.info("Cercherò in tutti i documenti")
+            if ss.get("active_doc"):
+                # Mostra il nome umano del file selezionato
+                _, nice_name = normalize_source_id(ss["active_doc"])
+                st.info(f"Cercherò nel documento: {nice_name}")
+            else:
+                st.info("Cercherò in tutti i documenti")
         else:
             st.info("Azure Search non configurato: risponderò senza contesto.")
 
@@ -524,7 +510,7 @@ with right:
             ss.last_search_q = search_q
 
         # Utility richieste (destra)
-        colu1, colu2, _ = st.columns([2,2,4])
+        colu1, colu2, _ = st.columns([2, 2, 4])
         with colu1:
             if st.button("Svuota chat"):
                 ss['chat_history'] = []
@@ -545,10 +531,11 @@ with right:
                         mime="text/markdown"
                     )
 
-        # --- Navigatori ricerca compatti, su UNA riga e sopra il separatore ---
+        # --- Navigatori ricerca compatti ---
         if search_q:
             def count_occurrences(text: str, q: str) -> int:
-                if not q: return 0
+                if not q:
+                    return 0
                 return len(re.findall(re.escape(q), text, flags=re.IGNORECASE))
             total_matches = sum(count_occurrences(m.get("content",""), search_q) for m in ss["chat_history"])
             st.caption(f"Risultati totali: {total_matches}")
@@ -645,7 +632,7 @@ with right:
             </script>
         """, height=0)
 
-                # --- Invio: Azure Search (contesto) + modello ---
+        # --- Invio: Azure Search (contesto) + modello ---
         if sent and user_q.strip():
             ss['chat_history'].append({'role':'user','content':user_q.strip(),'ts':ts_now_it()})
         
@@ -691,9 +678,9 @@ with right:
                 typing_ph.empty()
                 ai_text = resp.choices[0].message.content if resp.choices else "(nessuna risposta)"
         
-                # elenco fonti (link markdown "Nome" -> URL pulito)
+                # elenco fonti: solo nomi, niente URL
                 if sources:
-                    links = [f"[{s['name']}]({s['url']})" for s in sources[:6]]
+                    links = [s['name'] for s in sources[:6]]
                     ai_text += "\n\n— 📎 Fonti: " + ", ".join(links)
         
                 ss['chat_history'].append({'role':'assistant','content':ai_text,'ts':ts_now_it()})
