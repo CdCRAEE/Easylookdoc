@@ -634,58 +634,62 @@ with right:
         """, height=0)
 
 # --- Invio: Azure Search (contesto) + modello ---
-        if sent and user_q.strip():
-            ss['chat_history'].append({'role':'user','content':user_q.strip(),'ts':ts_now_it()})
+if sent and user_q.strip():
+    ss['chat_history'].append({'role': 'user', 'content': user_q.strip(), 'ts': ts_now_it()})
 
-            # RICERCA NEL MOTORE (con eventuale filtro documento attivo)
-            context_snippets, sources = [], []
-            try:
-                if not search_client:
-                    st.warning("Azure Search non disponibile. Risposta senza contesto.")
-                else:
-                    flt = safe_filter_eq(FILENAME_FIELD, ss.get("active_doc")) if ss.get("active_doc") else None
-                    results = search_client.search(
-                        search_text=user_q,
-                        filter=flt,
-                        top=5,
-                        query_type="simple",
-                    )
-                    seen = set()
-                    for r in results:
-                        snippet = r.get("chunk") or r.get("content") or r.get("text")
-                        if snippet:
-                            context_snippets.append(str(snippet)[:400])
+    # RICERCA NEL MOTORE (con eventuale filtro documento attivo)
+    context_snippets, sources = [], []
+    try:
+        if not search_client:
+            st.warning("Azure Search non disponibile. Risposta senza contesto.")
+        else:
+            flt = safe_filter_eq(FILENAME_FIELD, ss.get("active_doc")) if ss.get("active_doc") else None
+            results = search_client.search(
+                search_text=user_q,
+                filter=flt,
+                top=5,
+                query_type="simple",
+            )
+            seen = set()
+            for r in results:
+                snippet = r.get("chunk") or r.get("content") or r.get("text")
+                if snippet:
+                    context_snippets.append(str(snippet)[:400])
 
-                        raw_id = r.get(FILENAME_FIELD)
-                        if raw_id:
-                            url, name = normalize_source_id(str(raw_id))
-                            key = (url or "").lower()
-                            if key not in seen:
-                                seen.add(key)
-                                sources.append({"url": url, "name": name})
-            except Exception as e:
-                st.error(f"Errore ricerca: {e}")
+                raw_id = r.get(FILENAME_FIELD)
+                if raw_id:
+                    url, name = normalize_source_id(str(raw_id))
+                    key = (url or "").lower()
+                    if key not in seen:
+                        seen.add(key)
+                        sources.append({"url": url, "name": name})
+    except Exception as e:
+        st.error(f"Errore ricerca: {e}")
 
-            # CHIAMATA MODELLO con contesto
-            try:
-                messages = build_chat_messages(user_q, context_snippets)
-                with typing_ph, st.spinner("Sto scrivendo…"):
-                    resp = client.chat.completions.create(
-                        model=AZURE_OPENAI_DEPLOYMENT,
-                        messages=messages,
-                        temperature=0.2,
-                        max_tokens=900,
-                    )
-                typing_ph.empty()
-                ai_text = resp.choices[0].message.content if resp.choices else "(nessuna risposta)"
+    # CHIAMATA MODELLO con contesto
+    try:
+        messages = build_chat_messages(user_q, context_snippets)
+        with typing_ph, st.spinner("Sto scrivendo…"):
+            resp = client.chat.completions.create(
+                model=AZURE_OPENAI_DEPLOYMENT,
+                messages=messages,
+                temperature=0.2,
+                max_tokens=900,
+            )
+        typing_ph.empty()
+        ai_text = resp.choices[0].message.content if resp.choices else "(nessuna risposta)"
 
-                # elenco fonti (link markdown "Nome" -> URL pulito)
-                if sources:
-                    links = [f"[{s['name']}]({s['url']})" for s in sources[:6]]
-                    ai_text += "\n\n— 📎 Fonti: " + ", ".join(links)
+        # elenco fonti (link markdown "Nome" -> URL pulito)
+        if sources:
+            links = [f"[{s['name']}]({s['url']})" for s in sources[:6]]
+            ai_text += "\n\n— 📎 Fonti: " + ", ".join(links)
 
-                ss['chat_history'].append({'role':'assistant','content':ai_text,'ts':ts_now_it()})
-            except Exception as e:
-                typing_ph.empty()
-                ss['chat_history'].append({'role':'assistant','content':f"Si è verificato un errore durante la generazione della risposta: {e}",'ts':ts_now_it()})
-            st.rerun()
+        ss['chat_history'].append({'role': 'assistant', 'content': ai_text, 'ts': ts_now_it()})
+    except Exception as e:
+        typing_ph.empty()
+        ss['chat_history'].append({
+            'role': 'assistant',
+            'content': f"Si è verificato un errore durante la generazione della risposta: {e}",
+            'ts': ts_now_it()
+        })
+    st.rerun()
