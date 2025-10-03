@@ -370,7 +370,7 @@ with right:
     if nav == 'Leggi documento':
         st.subheader("📤 Documenti")
         if not search_client:
-            st.warning(⚠️ Azure Search non configurato.")
+            st.warning("Azure Search non configurato.")
         else:
             try:
                 # recupero facet con l'elenco dei file (usa il campo FILENAME_FIELD)
@@ -704,4 +704,4 @@ with right:
                         st.rerun()
 
         st.divider()
-        st.caption("Suggerimento: apri un salvataggio per riprendere la conversazione da dove l'hai lasciata.")")
+        st.caption("Suggerimento: apri un salvataggio per riprendere la conversazione da dove l'hai lasciata.")
