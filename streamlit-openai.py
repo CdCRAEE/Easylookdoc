@@ -299,11 +299,6 @@ html, body{ height:100%; overflow:hidden; }
 }
 
 /* fascia bianca sinistra coerente con colonna */
-.block-container::before{
-  content:""; position:absolute; top:0; bottom:0; left:0;
-  width:32%; background:#ffffff; box-shadow:inset -1px 0 0 #e5e7eb;
-  pointer-events:none; z-index:0;
-}
 .block-container > *{ position:relative; z-index:1; }
 
 .chat-card{
@@ -314,7 +309,7 @@ html, body{ height:100%; overflow:hidden; }
   display:grid;
   grid-template-rows:auto minmax(0,1fr) auto; /* differenza qui */
   height:calc(var(--vh) - var(--top-offset));
-  overflow:hidden; /* differenza qui */
+  overflow:visible; /* modificato per abilitare scroll interno */
 }
 .chat-header{
   padding:12px 16px;
@@ -657,8 +652,8 @@ if sent and user_q.strip():
                     context_snippets.append(str(snippet)[:400])
 
                 raw_id = r.get(FILENAME_FIELD)
-                if raw_id:
-                    url, name = normalize_source_id(str(raw_id))
+        if raw_id:
+            url, name = normalize_source_id(str(raw_id))
                     key = (url or "").lower()
                     if key not in seen:
                         seen.add(key)
