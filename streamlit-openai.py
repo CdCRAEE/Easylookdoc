@@ -310,9 +310,11 @@ CSS = """
   box-shadow:0 2px 8px rgba(16,24,40,.04);
   display:grid;
   grid-template-rows:auto minmax(0,1fr) auto; /* differenza qui */
-  height:calc(var(--vh) - var(--top-offset));
-  overflow:hidden; /* differenza qui */
+  height: auto;                /* la card cresce con il contenuto */
+  min-height: calc(var(--vh) - var(--top-offset));  /* non forza, ma garantisce spazio minimo */
+  overflow: visible;           /* niente gabbia */
 }
+
 .chat-header{
   padding:12px 16px;
   border-bottom:1px solid #eef2f7;
@@ -321,11 +323,10 @@ CSS = """
 }
 .chat-body{
   padding:14px; 
-  overflow:auto;      /* differenza qui */
-  min-height:0;       /* evita che il body spinga fuori il footer */
-  background:#fff;
-  -webkit-overflow-scrolling: touch; 
-  overscroll-behavior: contain;
+  overflow: auto;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: auto;   /* consente lo scroll a cascata */
 }
 .chat-footer{
   padding:10px 12px 12px;
@@ -455,7 +456,7 @@ with right:
                     st.info("Nessun documento trovato nell'indice (controlla che il campo sia facetable e l'indice popolato).")
                 else:
                     import os as _os
-                    display = [display_name_from_url(p) for p in paths]
+                    display = [normalize_source_id(p)[1] for p in paths]
                     idx = paths.index(ss["active_doc"]) if ss.get("active_doc") in paths else 0
                     selected_label = st.selectbox("Seleziona documento", display, index=idx)
                     selected_path = paths[display.index(selected_label)]
