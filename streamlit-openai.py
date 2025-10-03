@@ -362,7 +362,8 @@ labels = {
     "💬 Chat": "Chat",
     "🕒 Cronologia": "Cronologia",
 }
-    '',
+choice = st.radio(
+    "",
     list(labels.keys()),
     index=list(labels.keys()).index(ss["main_nav"]) if ss.get("main_nav") in labels else 1,
     key="main_nav"  # <— la radio è legata a questa chiave
