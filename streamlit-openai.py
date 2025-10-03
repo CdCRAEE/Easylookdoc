@@ -10,7 +10,7 @@ from azure.core.credentials import AzureKeyCredential
 from azure.storage.blob import BlobServiceClient, BlobSasPermissions, generate_blob_sas
 from io import BytesIO  # per eventuali export futuri
 import base64 as _b64, posixpath as _pp
-from urllib.parse import urlparse as _urlparse, urlunparse as _urlunparse, unquote as _unquote
+from urllib.parse import urlparse as _urlparse, urlunparse as _url_unparse, unquote as _unquote
 
 # ======================= APP CONFIG =======================
 st.set_page_config(page_title='EasyLook.DOC Chat', page_icon='💬', layout='wide')
@@ -66,7 +66,7 @@ def clean_azure_blob_url(url: str) -> str:
     """Rimuove query/SAS e lascia solo schema+host+path."""
     try:
         u = _urlparse(url)
-        return _urlunparse((u.scheme, u.netloc, u.path, "", "", ""))
+        return _url_unparse((u.scheme, u.netloc, u.path, "", "", ""))
     except Exception:
         return url
 
@@ -247,7 +247,7 @@ except Exception as e:
 ss = st.session_state
 ss.setdefault('chat_history', [])
 ss.setdefault("active_doc", None)     # filtro documento correntemente selezionato
-ss.setdefault("nav", "Chat")
+ss.setdefault("main_nav", "💬 Chat")
 ss.setdefault("search_index", 0)
 ss.setdefault("last_search_q", "")
 ss.setdefault("saved_chats", [])      # [{id, name, created_at, history}]
@@ -325,14 +325,7 @@ html, body, .stApp { height: auto !important; overflow: auto !important; }
 #search-nav .stButton>button{padding:4px 10px;font-size:12px;line-height:1.1;height:auto;border-radius:8px;}
 #search-nav .counter{font-size:12px;color:#1f2b3a;display:flex; align-items:center; height:100%;}
 mark{ background:#C8E7EA; padding:0 .15em; border-radius:3px; }
-
-/* === NO WRAP per i bottoni della chat === */
-#chat-buttons .stButton > button{
-  white-space: nowrap !important;
-  padding-left: 14px !important;
-  padding-right: 14px !important;
-}
-
+#chat-buttons .stButton > button{ white-space: nowrap !important; padding-left: 14px !important; padding-right: 14px !important; }
 </style>
 """
 st.markdown(CSS, unsafe_allow_html=True)
@@ -345,11 +338,15 @@ with left:
     # --- Loghi sopra al menù, allineati a destra e vicini ---
     l1, l2, l3 = st.columns([6, 1, 1])
     with l2:
-        try: st.image('images/logoRAEE.png', width=80)
-        except Exception: pass
+        try:
+            st.image('images/logoRAEE.png', width=80)
+        except Exception:
+            pass
     with l3:
-        try: st.image('images/logoNPA.png', width=80)
-        except Exception: pass
+        try:
+            st.image('images/logoNPA.png', width=80)
+        except Exception:
+            pass
     st.markdown("<div style='margin-top:-6px;'></div>", unsafe_allow_html=True)
     try:
         st.image('images/Nuovo_Logo.png', width=200)
@@ -357,18 +354,19 @@ with left:
         st.markdown('')
     st.markdown('---')
 
-labels = {
-    "📂 Documenti": "Leggi documento",
-    "💬 Chat": "Chat",
-    "🕒 Cronologia": "Cronologia",
-}
-choice = st.radio(
-    "",
-    list(labels.keys()),
-    index=list(labels.keys()).index(ss["main_nav"]) if ss.get("main_nav") in labels else 1,
-    key="main_nav"  # <— la radio è legata a questa chiave
-)
-nav = labels[choice]
+    # --- Menu di navigazione ---
+    labels = {
+        "📂 Documenti": "Leggi documento",
+        "💬 Chat": "Chat",
+        "🕒 Cronologia": "Cronologia",
+    }
+    choice = st.radio(
+        "",
+        list(labels.keys()),
+        index=list(labels.keys()).index(ss.get("main_nav", "💬 Chat")) if ss.get("main_nav") in labels else 1,
+        key="main_nav"
+    )
+    nav = labels[choice]
 
     spacer(10)
     st.markdown("<div style='flex-grow:1'></div>", unsafe_allow_html=True)
@@ -421,37 +419,26 @@ with right:
                     else:
                         default_idx = 0
 
+                    # reset della select se richiesto
                     if ss.get("reset_doc_select", False):
-    if "doc_select" in st.session_state:
-        del st.session_state["doc_select"]
-    ss["reset_doc_select"] = False  # consumo il flag
+                        if "doc_select" in st.session_state:
+                            del st.session_state["doc_select"]
+                        ss["reset_doc_select"] = False
 
-display_items = [(normalize_source_id(p)[1], p) for p in paths]
-names = [n for n, _ in display_items]
+                    selected_label = st.selectbox(
+                        "Seleziona documento", options, index=default_idx, key="doc_select"
+                    )
 
-ALL_OPT = "— Tutti i documenti —"
-options = [ALL_OPT] + names
+                    if selected_label == ALL_OPT:
+                        if ss.get("active_doc") is not None:
+                            ss["active_doc"] = None
+                            st.info("Filtro rimosso: userai tutti i documenti.")
+                    else:
+                        selected_path = dict(display_items)[selected_label]
+                        if selected_path != ss.get("active_doc"):
+                            ss["active_doc"] = selected_path
+                            st.success(f"Filtro attivo su: {selected_label}")
 
-if ss.get("active_doc") in paths:
-    default_idx = 1 + paths.index(ss["active_doc"])
-else:
-    default_idx = 0
-
-selected_label = st.selectbox(
-    "Seleziona documento", options, index=default_idx, key="doc_select"
-)
-
-if selected_label == ALL_OPT:
-    if ss.get("active_doc") is not None:
-        ss["active_doc"] = None
-        st.info("Filtro rimosso: userai tutti i documenti.")
-else:
-    selected_path = dict(display_items)[selected_label]
-    if selected_path != ss.get("active_doc"):
-        ss["active_doc"] = selected_path
-        st.success(f"Filtro attivo su: {selected_label}")
-
-                    # (opzionale) bottone che sincronizza anche la select
                     if st.button("Usa tutti i documenti (rimuovi filtro)"):
                         ss["active_doc"] = None
                         ss["doc_select"] = ALL_OPT
@@ -469,9 +456,8 @@ else:
                 placeholder="nome.cognome@cdcraee.it",
                 key="user_upn"
             )
-            # ⚠️ non scrivere su ss["user_upn"] perché è la stessa key del widget
 
-            if ss.get("user_upn"):  # il widget popola direttamente ss["user_upn"]
+            if ss.get("user_upn"):
                 uploaded = st.file_uploader(
                     "Seleziona un file da caricare nel tuo contenitore personale",
                     type=["pdf", "docx", "txt", "md"],
@@ -487,7 +473,9 @@ else:
                             blob_name,
                             ttl_minutes=15
                         )
-                        st.success(f"Documento correttamente caricato su {upn_norm}")
+                        # Nota: qui potresti fare la PUT del file su upload_url con requests; per ora mostriamo solo l'URL generato.
+                        st.success(f"URL SAS generato per {upn_norm}. Caricamento lato client richiesto.")
+                        st.code(upload_url, language="text")
                     except Exception as e:
                         st.error(f"Impossibile generare la SAS: {e}")
             else:
@@ -500,15 +488,15 @@ else:
         # Messaggio dinamico su dove cerco
         if search_client:
             if ss.get("active_doc"):
-                _, nice_name = normalize_source_id(ss["active_doc"])
+                url, nice_name = normalize_source_id(ss["active_doc"])
                 st.info(f"Cercherò nel documento: {nice_name}")
             else:
                 st.info("Cercherò in tutti i documenti")
         else:
             st.info("Azure Search non configurato: risponderò senza contesto.")
 
-        # --- Pulsanti utilità (Esporta → Svuota → Salva)
-        col_e, col_c, col_s, _ = st.columns([2, 2, 2, 6])
+        # --- Pulsanti utilità (Esporta → Salva)
+        col_e, col_s, _ = st.columns([2, 2, 6])
 
         with col_e:
             if st.button("Esporta chat (.md)"):
@@ -527,47 +515,42 @@ else:
                     )
 
         with col_s:
-    # Toggle: quando apro il form inizializzo il nome SOLO una volta
-    if st.button("Salva chat"):
-        if not ss.get("save_open", False):
-            ss["save_open"] = True
-            ss["save_name"] = f"Chat del {ts_now_it()}"  # inizializzo il default
-        else:
-            ss["save_open"] = False
-            if "save_name" in ss:
-                del ss["save_name"]
-        st.markdown('</div>', unsafe_allow_html=True)
+            if st.button("Salva chat"):
+                if not ss.get("save_open", False):
+                    ss["save_open"] = True
+                    ss["save_name"] = f"Chat del {ts_now_it()}"
+                else:
+                    ss["save_open"] = False
+                    if "save_name" in ss:
+                        del ss["save_name"]
 
-# --- Form di salvataggio (mostrato quando richiesto) ---
-if ss.get("save_open"):
-    with st.form("save_chat_form", clear_on_submit=False):
-        # IMPORTANTE: usiamo SOLO la chiave, niente `value=` qui
-        save_name = st.text_input(
-            "Nome del salvataggio",
-            key="save_name",
-            help="Dai un nome a questa chat"
-        )
-        do_save = st.form_submit_button("Conferma salvataggio")
+        # --- Form di salvataggio ---
+        if ss.get("save_open"):
+            with st.form("save_chat_form", clear_on_submit=False):
+                save_name = st.text_input(
+                    "Nome del salvataggio",
+                    key="save_name",
+                    help="Dai un nome a questa chat"
+                )
+                do_save = st.form_submit_button("Conferma salvataggio")
 
-    if do_save:
-        if not ss['chat_history']:
-            st.warning("Non c'è nulla da salvare: la chat è vuota.")
-        else:
-            import uuid
-            # prendo il nome dallo stato (se vuoto, ricado sul default al momento del salvataggio)
-            final_name = (ss.get("save_name") or "").strip() or f"Chat del {ts_now_it()}"
-            entry = {
-                "id": str(uuid.uuid4()),
-                "name": final_name,
-                "created_at": ts_now_it(),
-                "history": list(ss['chat_history'])  # copia
-            }
-            ss['saved_chats'].insert(0, entry)
-            # chiudo e pulisco lo stato del form
-            ss["save_open"] = False
-            if "save_name" in ss:
-                del ss["save_name"]
-            st.success(f"Chat salvata come: {entry['name']}")
+            if do_save:
+                if not ss['chat_history']:
+                    st.warning("Non c'è nulla da salvare: la chat è vuota.")
+                else:
+                    import uuid
+                    final_name = (ss.get("save_name") or "").strip() or f"Chat del {ts_now_it()}"
+                    entry = {
+                        "id": str(uuid.uuid4()),
+                        "name": final_name,
+                        "created_at": ts_now_it(),
+                        "history": list(ss['chat_history'])
+                    }
+                    ss['saved_chats'].insert(0, entry)
+                    ss["save_open"] = False
+                    if "save_name" in ss:
+                        del ss["save_name"]
+                    st.success(f"Chat salvata come: {entry['name']}")
 
         # ---------------- CHAT CARD ----------------
         st.markdown('<div class="chat-card">', unsafe_allow_html=True)
@@ -745,9 +728,9 @@ if ss.get("save_open"):
                     c1.markdown(f"**{item['name']}**")
                     c2.caption(f"Creato il: {item['created_at']}")
                     if c3.button("Apri", key=f"open_{item['id']}"):
-    ss["chat_history"] = list(item["history"])
-    ss["main_nav"] = "💬 Chat"  # cambia il tab selezionato
-    st.rerun()
+                        ss["chat_history"] = list(item["history"])
+                        ss["main_nav"] = "💬 Chat"
+                        st.rerun()
                     if c4.button("Elimina", key=f"del_{item['id']}"):
                         ss["saved_chats"].pop(i)
                         st.rerun()
