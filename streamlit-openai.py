@@ -358,12 +358,12 @@ with left:
     st.markdown('---')
 
     labels = {
-    "📂 Documenti": "Leggi documento",
-    "💬 Chat": "Chat",
-    "🕒 Cronologia": "Cronologia",
-}
-ss.setdefault("main_nav", "💬 Chat")  # default
-choice = st.radio(
+    labels = {
+        "📂 Documenti": "Leggi documento",
+        "💬 Chat": "Chat",
+        "🕒 Cronologia": "Cronologia",
+    }
+    ss.setdefault("main_nav", "💬 Chat")  # default
     '',
     list(labels.keys()),
     index=list(labels.keys()).index(ss["main_nav"]) if ss.get("main_nav") in labels else 1,
