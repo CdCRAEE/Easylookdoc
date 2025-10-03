@@ -505,18 +505,103 @@ with right:
         else:
             st.info("Azure Search non configurato: risponderò senza contesto.")
 
-        # ---------------- CHAT CARD (scroll SOLO nel corpo chat) ----------------
+        # --- Ricerca nella chat (con navigazione match) ---
+        search_q = st.text_input("🔎 Cerca nella chat", value="", placeholder="Cerca messaggi…")
+        if search_q != ss.last_search_q:
+            ss.search_index = 0
+            ss.last_search_q = search_q
+
+        # Utility richieste (destra)
+        colu1, colu2, _ = st.columns([2,2,4])
+        with colu1:
+            if st.button("Svuota chat"):
+                ss['chat_history'] = []
+                st.rerun()
+        with colu2:
+            if st.button("Esporta chat (.md)"):
+                if ss['chat_history']:
+                    md_lines = ["# Conversazione\n"]
+                    for m in ss['chat_history']:
+                        who = "Utente" if m['role'] == 'user' else "Assistente"
+                        ts = m.get('ts', '')
+                        md_lines.append(f"**{who}** ({ts}):\n\n{m.get('content','')}\n")
+                    md_str = "\n".join(md_lines)
+                    st.download_button(
+                        "Scarica .md",
+                        data=md_str,
+                        file_name="chat_export.md",
+                        mime="text/markdown"
+                    )
+
+        # --- Navigatori ricerca compatti, su UNA riga e sopra il separatore ---
+        if search_q:
+            def count_occurrences(text: str, q: str) -> int:
+                if not q: return 0
+                return len(re.findall(re.escape(q), text, flags=re.IGNORECASE))
+            total_matches = sum(count_occurrences(m.get("content",""), search_q) for m in ss["chat_history"])
+            st.caption(f"Risultati totali: {total_matches}")
+            if total_matches > 0:
+                st.markdown("<div id='search-nav'>", unsafe_allow_html=True)
+                c1, c2, c3 = st.columns([0.18, 0.18, 0.64])
+                with c1:
+                    if st.button("◀️ Precedente", key="nav_prev"):
+                        ss.search_index = (ss.search_index - 1) % total_matches
+                with c2:
+                    if st.button("▶️ Successivo", key="nav_next"):
+                        ss.search_index = (ss.search_index + 1) % total_matches
+                with c3:
+                    st.markdown(
+                        f"<div class='counter'>Match corrente: <strong>{(ss.search_index % total_matches) + 1} / {total_matches}</strong></div>",
+                        unsafe_allow_html=True
+                    )
+                st.markdown("</div>", unsafe_allow_html=True)
+            else:
+                st.caption("Nessun risultato per questa ricerca.")
+        else:
+            total_matches = 0
+            ss.search_index = 0
+
+        # ---------------- CHAT CARD ----------------
         st.markdown('<div class="chat-card">', unsafe_allow_html=True)
+
+        # Script di misura altezza/offset — messo DOPO che la card esiste
+        components.html("""
+        <script>
+        (function(){
+          function setVH(){
+            const h = window.innerHeight || document.documentElement.clientHeight;
+            (window.parent.document || document).documentElement.style.setProperty('--vh', h + 'px');
+          }
+          function setTopOffset(){
+            const doc = window.parent.document || document;
+            const card = doc.querySelector('.chat-card');
+            if(!card) return;
+            const rect = card.getBoundingClientRect();
+            doc.documentElement.style.setProperty('--top-offset', Math.max(0, Math.round(rect.top)) + 'px');
+          }
+          function recompute(){ setVH(); setTopOffset(); }
+          recompute();
+          window.addEventListener('resize', recompute);
+          const target = (window.parent && window.parent.document) ? window.parent.document.body : document.body;
+          if (target && 'ResizeObserver' in window){ new ResizeObserver(recompute).observe(target); }
+        })();
+        </script>
+        """, height=0)
+
         st.markdown('<div class="chat-header">Conversazione</div>', unsafe_allow_html=True)
 
-        # Corpo messaggi con scroll
-        st.markdown('<div class="chat-body" id="chat-body">', unsafe_allow_html=True)
+        # Corpo messaggi (render solo se esistono)
         if ss["chat_history"]:
+            st.markdown('<div class="chat-body" id="chat-body">', unsafe_allow_html=True)
+            remaining_idx = (ss.search_index % total_matches) if (search_q and total_matches > 0) else 0
             for m in ss["chat_history"]:
-                role = m.get('role','assistant')
-                raw = m.get('content','')
-                ts = m.get('ts','')
-                content_html = html.escape(raw).replace("\n","<br>")
+                role = m['role']
+                raw_text = m.get('content','')
+                if search_q and total_matches > 0:
+                    content_html, remaining_idx = highlight_nth(raw_text, search_q, remaining_idx)
+                else:
+                    content_html = html.escape(raw_text).replace("\n","<br>")
+                ts = fmt_ts(m.get('ts',''))
                 if role == 'user':
                     st.markdown(f"""
                         <div class='msg-row' style='justify-content:flex-end;'>
@@ -529,11 +614,9 @@ with right:
                           <div class='avatar ai'>A</div>
                           <div class='msg ai'>{content_html}<div class='meta'>{ts}</div></div>
                         </div>""", unsafe_allow_html=True)
-        else:
-            st.markdown("<div class='small'>Nessun messaggio ancora.</div>", unsafe_allow_html=True)
-        st.markdown('</div>', unsafe_allow_html=True)  # chiude chat-body
+            st.markdown('</div>', unsafe_allow_html=True)  # chiude chat-body
 
-        # Footer input SEMPRE visibile (variabili usate dal blocco Invio sottostante)
+        # Footer input SEMPRE visibile
         typing_ph = st.empty()
         st.markdown('<div class="chat-footer">', unsafe_allow_html=True)
         with st.form(key="chat_form", clear_on_submit=True):
@@ -542,14 +625,15 @@ with right:
         st.markdown('</div>', unsafe_allow_html=True)   # chiude chat-footer
         st.markdown('</div>', unsafe_allow_html=True)   # chiude chat-card
 
-        # autoscroll nel box chat (solo corpo chat)
+        # autoscroll nel box chat
         components.html("""
             <script>
               const el = window.parent.document.getElementById('chat-body');
               if (el) { el.scrollTop = el.scrollHeight; }
             </script>
         """, height=0)
-        # --- Invio: Azure Search (contesto) + modello ---
+
+                # --- Invio: Azure Search (contesto) + modello ---
         if sent and user_q.strip():
             ss['chat_history'].append({'role':'user','content':user_q.strip(),'ts':ts_now_it()})
         
