@@ -1,18 +1,19 @@
-import os, html, re
+import os, html, re, unicodedata, datetime as dt
 import pytz
 import streamlit as st
 import streamlit.components.v1 as components
-import unicodedata, datetime as dt
 from datetime import datetime, timezone
 from openai import AzureOpenAI
 from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 from azure.storage.blob import BlobServiceClient, BlobSasPermissions, generate_blob_sas
-from io import BytesIO  # usato per eventuali export futuri
+from io import BytesIO  # per eventuali export futuri
+import base64 as _b64, posixpath as _pp
+from urllib.parse import urlparse as _urlparse, urlunparse as _urlunparse, unquote as _unquote
 
+# ======================= APP CONFIG =======================
 st.set_page_config(page_title='EasyLook.DOC Chat', page_icon='💬', layout='wide')
-
 
 # --------- CONFIG ---------
 TENANT_ID = os.getenv('AZURE_TENANT_ID')
@@ -28,24 +29,17 @@ AZURE_SEARCH_KEY = os.getenv("AZURE_SEARCH_KEY")
 AZURE_SEARCH_INDEX = os.getenv("AZURE_SEARCH_INDEX")
 FILENAME_FIELD = "metadata_storage_path"  # campo usato per filtrare per file
 
-ACCOUNT_NAME = "cdcraeeaieastus"     # <-- il tuo account
-# (opzionale) eccezioni esplicite: UPN -> container
+ACCOUNT_NAME = "cdcraeeaieastus"
 CONTAINER_OVERRIDES = {
     # "utente.particolare@cdcraee.it": "c-x-cognome-personalizzato",
 }
 
 # --------- TIMEZONE ---------
 local_tz = pytz.timezone("Europe/Rome")
-
 def ts_now_it():
     return datetime.now(local_tz).strftime("%d/%m/%Y %H:%M:%S")
 
-# --------- HELPERS ---------
-
-# --- Helpers per ID/URL sorgenti (Base64, URL-safe, Azure Blob) ---
-import base64 as _b64, posixpath as _pp
-from urllib.parse import urlparse as _urlparse, urlunparse as _urlunparse, unquote as _unquote
-
+# ======================= HELPERS =======================
 _B64_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/_-=")
 
 def _looks_like_b64(s: str) -> bool:
@@ -122,8 +116,6 @@ def fmt_ts(ts_raw: str) -> str:
 
 def highlight_nth(text: str, q: str, global_idx: int):
     escaped = html.escape(text)
-
-    # se non c'è query o abbiamo già evidenziato (sentinella -1) → non evidenziare altro
     if not q or (isinstance(global_idx, int) and global_idx < 0):
         return escaped.replace("\n", "<br>"), global_idx
 
@@ -133,17 +125,14 @@ def highlight_nth(text: str, q: str, global_idx: int):
         return escaped.replace("\n", "<br>"), global_idx
 
     if global_idx < len(matches):
-        # evidenzia SOLO la occorrenza 'global_idx' in QUESTO messaggio
         parts, last_end = [], 0
         for i, m in enumerate(matches):
             parts.append(escaped[last_end:m.start()])
             parts.append(f"<mark>{m.group(0)}</mark>" if i == global_idx else m.group(0))
             last_end = m.end()
         parts.append(escaped[last_end:])
-        # torna -1 = “fatto”, gli altri messaggi NON evidenzieranno nulla
         return "".join(parts).replace("\n", "<br>"), -1
     else:
-        # salta tutte le occorrenze di questo messaggio
         return escaped.replace("\n", "<br>"), global_idx - len(matches)
 
 def _slugify_ascii(s: str) -> str:
@@ -152,30 +141,25 @@ def _slugify_ascii(s: str) -> str:
     s = s.lower()
     s = re.sub(r"[^a-z0-9]+", "-", s).strip("-")
     return s
- 
+
 def upn_to_container(upn: str) -> str:
     """
     Converte 'nome.cognome@dominio' -> 'c-n-cognome'
-    Esempi:
-      'andrea.cervini@...'      -> 'c-a-cervini'
-      'francesca.d'angelo@...'  -> 'c-f-dangelo'
-      'luca.maria.rossi@...'    -> 'c-l-rossi'  (cognome = ultimo token)
-      'chiara@...'              -> 'c-c-chiara' (fallback se manca cognome)
     """
     upn_l = upn.strip().lower()
     if upn_l in CONTAINER_OVERRIDES:
         return CONTAINER_OVERRIDES[upn_l]
- 
+
     left = upn_l.split("@", 1)[0]
     parts = [p for p in re.split(r"[^a-z0-9]+", left) if p]
     if not parts:
         return "c-u-user"
- 
+
     first = parts[0]
     last = parts[-1] if len(parts) > 1 else parts[0]
     initial = _slugify_ascii(first)[:1] or "x"
     surname = _slugify_ascii(last) or "user"
- 
+
     name = f"c-{initial}-{surname}"
     name = re.sub(r"-+", "-", name).strip("-")
     if len(name) < 3:
@@ -193,10 +177,10 @@ def upn_to_container(upn: str) -> str:
 def _svc():
     cred = DefaultAzureCredential()
     return BlobServiceClient(f"https://{ACCOUNT_NAME}.blob.core.windows.net", credential=cred)
- 
+
 def make_upload_sas(container: str, blob_name: str, ttl_minutes: int = 10) -> str:
     svc = _svc()
-    # Delegation key valida solo pochi minuti
+    # Delegation key valida pochi minuti
     now = dt.datetime.utcnow()
     udk = svc.get_user_delegation_key(now - dt.timedelta(minutes=1), now + dt.timedelta(minutes=ttl_minutes))
     sas = generate_blob_sas(
@@ -210,23 +194,20 @@ def make_upload_sas(container: str, blob_name: str, ttl_minutes: int = 10) -> st
     return f"https://{ACCOUNT_NAME}.blob.core.windows.net/{container}/{blob_name}?{sas}"
 
 def ensure_container(svc: BlobServiceClient, container: str):
-    """Crea il container se non esiste (idempotente se si hanno i permessi)."""
+    """Crea il container se non esiste (idempotente)."""
     try:
         svc.create_container(container)
     except Exception:
         pass
 
 def sas_for_user_blob(upn: str, blob_name: str, ttl_minutes: int = 15) -> str:
-    """
-    Wrapper che deriva il container dall'UPN e delega a make_upload_sas.
-    Non rimuove nulla: riusa _svc(), upn_to_container() e make_upload_sas().
-    """
+    """Deriva il container dall'UPN e genera una SAS di upload."""
     container = upn_to_container(upn)
     svc = _svc()
     ensure_container(svc, container)
     return make_upload_sas(container, blob_name, ttl_minutes=ttl_minutes)
 
-# --------- CLIENTS ---------
+# ======================= CLIENTS =======================
 try:
     credential = ClientSecretCredential(TENANT_ID, CLIENT_ID, CLIENT_SECRET)
 
@@ -246,7 +227,7 @@ try:
         azure_ad_token=st.session_state["aad_token"],
     )
 
-    # --- SearchClient reuse in session ---
+    # SearchClient in sessione
     search_key_tuple = (AZURE_SEARCH_ENDPOINT, AZURE_SEARCH_KEY, AZURE_SEARCH_INDEX)
     if "search_client" not in st.session_state or st.session_state.get("search_key") != search_key_tuple:
         if AZURE_SEARCH_ENDPOINT and AZURE_SEARCH_KEY and AZURE_SEARCH_INDEX:
@@ -262,15 +243,17 @@ except Exception as e:
     st.error(f"Errore inizializzazione Azure OpenAI/Search: {e}")
     st.stop()
 
-# --------- STATE ---------
+# ======================= STATE =======================
 ss = st.session_state
 ss.setdefault('chat_history', [])
 ss.setdefault("active_doc", None)     # filtro documento correntemente selezionato
 ss.setdefault("nav", "Chat")
 ss.setdefault("search_index", 0)
 ss.setdefault("last_search_q", "")
+ss.setdefault("saved_chats", [])      # [{id, name, created_at, history}]
+ss.setdefault("save_open", False)
 
-# --------- STYLE ---------
+# ======================= STYLE =======================
 CSS = """
 <style>
 :root{
@@ -279,17 +262,14 @@ CSS = """
   --vh: 100vh;
   --top-offset: 0px;
 }
-
-/* Fascia sinistra + bordo, sempre allineata all'intera pagina */
 .stApp{
   background-image:
     linear-gradient(to right, #ffffff 0, #ffffff 32%, rgba(255,255,255,0) 32%),
     linear-gradient(to right, #e5e7eb, #e5e7eb);
   background-repeat: no-repeat, no-repeat;
   background-size: 100% 100%, 1px 100%;
-  background-position: 0 0, 32% 0; /* 32% = stessa larghezza della tua colonna sinistra */
+  background-position: 0 0, 32% 0;
 }
-
 .chat-card{
   border:1px solid #e6eaf0;
   border-radius:14px;
@@ -297,8 +277,8 @@ CSS = """
   box-shadow:0 2px 8px rgba(16,24,40,.04);
   display:grid;
   grid-template-rows:auto minmax(0,1fr) auto;
-  min-height: calc(var(--vh) - var(--top-offset)); /* spazio minimo */
-  overflow: visible;   /* niente gabbia */
+  min-height: calc(var(--vh) - var(--top-offset));
+  overflow: visible;
 }
 .chat-header{
   padding:12px 16px;
@@ -312,7 +292,7 @@ CSS = """
   min-height:0;
   background:#fff;
   -webkit-overflow-scrolling: touch;
-  overscroll-behavior: auto; /* consente lo scroll a cascata */
+  overscroll-behavior: auto;
 }
 .chat-footer{
   padding:10px 12px 12px;
@@ -320,7 +300,6 @@ CSS = """
   border-radius:0 0 14px 14px;
   background:#fff;
 }
-
 .msg-row{display:flex;gap:10px;margin:8px 0;}
 .msg{padding:10px 14px;border-radius:16px;border:1px solid;max-width:78%;line-height:1.45;font-size:15px;}
 .msg .meta{font-size:11px;opacity:.7;margin-top:6px;}
@@ -330,8 +309,6 @@ CSS = """
 .avatar.ai{background:#d9e8ff;color:#123;}
 .avatar.user{background:#fff0a6;color:#5a4a00;}
 .small{font-size:12px;color:#5b6b7e;margin:6px 0 2px;}
-
-/* menu sinistro */
 label[data-baseweb="radio"]>div:first-child{display:none!important;}
 div[role="radiogroup"] label[data-baseweb="radio"]{
   display:flex!important;align-items:center;gap:8px;padding:8px 10px;border-radius:10px;cursor:pointer;user-select:none;
@@ -341,34 +318,18 @@ div[role="radiogroup"] label[data-baseweb="radio"]:hover{background:#eef5ff;}
 label[data-baseweb="radio"]:has(input:checked){background:#2F98C7;color:#ffffff;font-weight:600;}
 label[data-baseweb="radio"]:has(input:checked),
 label[data-baseweb="radio"]:has(input:checked) *{color:#ffffff !important;}
-
-/* stile per tutti i pulsanti st.button */
 .stButton>button{border:1px solid #2F98C7 !important;color:#2F98C7 !important;background:#fff !important;border-radius:8px !important;}
 .stButton>button:hover{background:#eef5ff !important;}
-
-/* Colonna sinistra: nessuno sticky, cresce come il contenuto */
-div[data-testid="column"] > div:first-child {
-  position: static;
-  min-height: 0;
-  height: auto;
-  overflow: visible;
-}
-
-/* Permetti lo scroll globale */
+div[data-testid="column"] > div:first-child { position: static; min-height: 0; height: auto; overflow: visible; }
 html, body, .stApp { height: auto !important; overflow: auto !important; }
-
-/* --- NAV ricerca compatta --- */
 #search-nav .stButton>button{padding:4px 10px;font-size:12px;line-height:1.1;height:auto;border-radius:8px;}
 #search-nav .counter{font-size:12px;color:#1f2b3a;display:flex; align-items:center; height:100%;}
-
-/* evidenziatore ricerca */
 mark{ background:#C8E7EA; padding:0 .15em; border-radius:3px; }
 </style>
 """
-
 st.markdown(CSS, unsafe_allow_html=True)
 
-# --------- LAYOUT ---------
+# ======================= LAYOUT =======================
 left, right = st.columns([0.32, 0.68], gap='large')
 
 # ===== LEFT PANE =====
@@ -387,7 +348,6 @@ with left:
     choice = st.radio('', list(labels.keys()), index=1)
     nav = labels[choice]
 
-    # loghi in basso
     spacer(10)
     st.markdown("<div style='flex-grow:1'></div>", unsafe_allow_html=True)
     colA, colB = st.columns(2)
@@ -428,36 +388,52 @@ with right:
                     # Costruisco coppie (nome_legibile, path) per evitare ambiguità in caso di nomi duplicati
                     display_items = [(normalize_source_id(p)[1], p) for p in paths]
                     names = [n for n, _ in display_items]
-                    # indice selezionato coerente con active_doc
-                    idx = 0
+
+                    # Opzione per nessun filtro
+                    ALL_OPT = "— Tutti i documenti —"
+                    options = [ALL_OPT] + names
+
+                    # indice di default: 0 se nessun filtro, altrimenti file selezionato +1
                     if ss.get("active_doc") in paths:
-                        idx = paths.index(ss["active_doc"])  # mantiene selezione attuale
-                    selected_label = st.selectbox("Seleziona documento", names, index=idx)
-                    # mapping nome -> path (se duplica, l'ultimo vince: in genere OK; per piena robustezza servirebbe UI diversa)
-                    selected_path = dict(display_items)[selected_label]
-                    if selected_path != ss.get("active_doc"):
-                        ss["active_doc"] = selected_path
-                        st.success(f"Filtro attivo su: {selected_label}")
+                        default_idx = 1 + paths.index(ss["active_doc"])
+                    else:
+                        default_idx = 0
+
+                    selected_label = st.selectbox(
+                        "Seleziona documento", options, index=default_idx, key="doc_select"
+                    )
+
+                    if selected_label == ALL_OPT:
+                        if ss.get("active_doc") is not None:
+                            ss["active_doc"] = None
+                            st.info("Filtro rimosso: userai tutti i documenti.")
+                    else:
+                        selected_path = dict(display_items)[selected_label]
+                        if selected_path != ss.get("active_doc"):
+                            ss["active_doc"] = selected_path
+                            st.success(f"Filtro attivo su: {selected_label}")
+
+                    # (opzionale) bottone che sincronizza anche la select
                     if st.button("Usa tutti i documenti (rimuovi filtro)"):
                         ss["active_doc"] = None
+                        ss["doc_select"] = ALL_OPT
                         st.rerun()
+
             except Exception as e:
                 st.error(f"Errore nel recupero dell'elenco documenti: {e}")
 
         # ======= SEZIONE: Upload per-utente con SAS =======
         st.divider()
         with st.expander("📂 Carica un nuovo documento"):
-            # Campo email contestualizzato QUI dentro
             upn_val = st.text_input(
                 "Email utente (UPN)",
                 value=ss.get("user_upn", ""),
                 placeholder="nome.cognome@cdcraee.it",
                 key="user_upn"
             )
-            if upn_val:
-                ss["user_upn"] = upn_val.strip().lower()
+            # ⚠️ non scrivere su ss["user_upn"] perché è la stessa key del widget
 
-            if ss.get("user_upn"):
+            if ss.get("user_upn"):  # il widget popola direttamente ss["user_upn"]
                 uploaded = st.file_uploader(
                     "Seleziona un file da caricare nel tuo contenitore personale",
                     type=["pdf", "docx", "txt", "md"],
@@ -467,12 +443,13 @@ with right:
                 if uploaded is not None:
                     blob_name = f"uploads/{int(dt.datetime.utcnow().timestamp())}_{uploaded.name}"
                     try:
+                        upn_norm = ss["user_upn"].strip().lower()
                         upload_url = sas_for_user_blob(
-                            ss["user_upn"],
+                            upn_norm,
                             blob_name,
                             ttl_minutes=15
                         )
-                        st.success(f"SAS generata per {ss['user_upn']}")
+                        st.success(f"SAS generata per {upn_norm}")
                         st.write("URL (valida 15 minuti):")
                         st.code(upload_url, language="text")
                     except Exception as e:
@@ -487,7 +464,6 @@ with right:
         # Messaggio dinamico su dove cerco
         if search_client:
             if ss.get("active_doc"):
-                # Mostra il nome umano del file selezionato
                 _, nice_name = normalize_source_id(ss["active_doc"])
                 st.info(f"Cercherò nel documento: {nice_name}")
             else:
@@ -495,19 +471,10 @@ with right:
         else:
             st.info("Azure Search non configurato: risponderò senza contesto.")
 
-        # --- Ricerca nella chat (con navigazione match) ---
-        search_q = st.text_input("🔎 Cerca nella chat", value="", placeholder="Cerca messaggi…")
-        if search_q != ss.last_search_q:
-            ss.search_index = 0
-            ss.last_search_q = search_q
+        # --- Pulsanti utilità (Esporta → Svuota → Salva)
+        col_e, col_c, col_s, _ = st.columns([2, 2, 2, 6])
 
-        # Utility richieste (destra)
-        colu1, colu2, _ = st.columns([2, 2, 4])
-        with colu1:
-            if st.button("Svuota chat"):
-                ss['chat_history'] = []
-                st.rerun()
-        with colu2:
+        with col_e:
             if st.button("Esporta chat (.md)"):
                 if ss['chat_history']:
                     md_lines = ["# Conversazione\n"]
@@ -523,34 +490,35 @@ with right:
                         mime="text/markdown"
                     )
 
-        # --- Navigatori ricerca compatti ---
-        if search_q:
-            def count_occurrences(text: str, q: str) -> int:
-                if not q:
-                    return 0
-                return len(re.findall(re.escape(q), text, flags=re.IGNORECASE))
-            total_matches = sum(count_occurrences(m.get("content",""), search_q) for m in ss["chat_history"])
-            st.caption(f"Risultati totali: {total_matches}")
-            if total_matches > 0:
-                st.markdown("<div id='search-nav'>", unsafe_allow_html=True)
-                c1, c2, c3 = st.columns([0.18, 0.18, 0.64])
-                with c1:
-                    if st.button("◀️ Precedente", key="nav_prev"):
-                        ss.search_index = (ss.search_index - 1) % total_matches
-                with c2:
-                    if st.button("▶️ Successivo", key="nav_next"):
-                        ss.search_index = (ss.search_index + 1) % total_matches
-                with c3:
-                    st.markdown(
-                        f"<div class='counter'>Match corrente: <strong>{(ss.search_index % total_matches) + 1} / {total_matches}</strong></div>",
-                        unsafe_allow_html=True
-                    )
-                st.markdown("</div>", unsafe_allow_html=True)
-            else:
-                st.caption("Nessun risultato per questa ricerca.")
-        else:
-            total_matches = 0
-            ss.search_index = 0
+        with col_c:
+            if st.button("Svuota chat"):
+                ss['chat_history'] = []
+                st.rerun()
+
+        with col_s:
+            if st.button("Salva chat"):
+                ss["save_open"] = not ss.get("save_open", False)
+
+        # --- Form di salvataggio (mostrato quando richiesto) ---
+        if ss.get("save_open"):
+            with st.form("save_chat_form", clear_on_submit=False):
+                default_name = f"Chat del {ts_now_it()}"
+                save_name = st.text_input("Nome del salvataggio", value=default_name, help="Dai un nome a questa chat")
+                do_save = st.form_submit_button("Conferma salvataggio")
+            if do_save:
+                if not ss['chat_history']:
+                    st.warning("Non c'è nulla da salvare: la chat è vuota.")
+                else:
+                    import uuid
+                    entry = {
+                        "id": str(uuid.uuid4()),
+                        "name": save_name.strip() or default_name,
+                        "created_at": ts_now_it(),
+                        "history": list(ss['chat_history'])  # copia
+                    }
+                    ss['saved_chats'].insert(0, entry)  # in cima alla lista
+                    ss["save_open"] = False
+                    st.success(f"Chat salvata come: {entry['name']}")
 
         # ---------------- CHAT CARD ----------------
         st.markdown('<div class="chat-card">', unsafe_allow_html=True)
@@ -581,7 +549,40 @@ with right:
 
         st.markdown('<div class="chat-header">Conversazione</div>', unsafe_allow_html=True)
 
-        # Corpo messaggi (render solo se esistono)
+        # --- Ricerca nella chat (sotto l'header) ---
+        search_q = st.text_input("🔎 Cerca nella chat", value="", placeholder="Cerca messaggi…")
+        if search_q != ss.last_search_q:
+            ss.search_index = 0
+            ss.last_search_q = search_q
+
+        # Navigatori (conteggio match)
+        def count_occurrences(text: str, q: str) -> int:
+            if not q:
+                return 0
+            return len(re.findall(re.escape(q), text, flags=re.IGNORECASE))
+
+        total_matches = sum(count_occurrences(m.get("content",""), search_q) for m in ss["chat_history"]) if search_q else 0
+        if search_q:
+            st.caption(f"Risultati totali: {total_matches}")
+            if total_matches > 0:
+                st.markdown("<div id='search-nav'>", unsafe_allow_html=True)
+                c1, c2, c3 = st.columns([0.18, 0.18, 0.64])
+                with c1:
+                    if st.button("◀️ Precedente", key="nav_prev"):
+                        ss.search_index = (ss.search_index - 1) % total_matches
+                with c2:
+                    if st.button("▶️ Successivo", key="nav_next"):
+                        ss.search_index = (ss.search_index + 1) % total_matches
+                with c3:
+                    st.markdown(
+                        f"<div class='counter'>Match corrente: <strong>{(ss.search_index % total_matches) + 1} / {total_matches}</strong></div>",
+                        unsafe_allow_html=True
+                    )
+                st.markdown("</div>", unsafe_allow_html=True)
+            else:
+                st.caption("Nessun risultato per questa ricerca.")
+
+        # Corpo messaggi
         if ss["chat_history"]:
             st.markdown('<div class="chat-body" id="chat-body">', unsafe_allow_html=True)
             remaining_idx = (ss.search_index % total_matches) if (search_q and total_matches > 0) else -1
@@ -680,3 +681,27 @@ with right:
                 typing_ph.empty()
                 ss['chat_history'].append({'role':'assistant','content':f"Si è verificato un errore durante la generazione della risposta: {e}",'ts':ts_now_it()})
             st.rerun()
+
+    # ======= CRONOLOGIA =======
+    elif nav == "Cronologia":
+        st.subheader("🕒 Cronologia chat salvate")
+
+        if not ss.get("saved_chats"):
+            st.info("Non ci sono chat salvate. Torna nella chat e usa **Salva chat**.")
+        else:
+            for i, item in enumerate(ss["saved_chats"]):
+                box = st.container(border=True)
+                with box:
+                    c1, c2, c3, c4 = st.columns([6, 3, 1.5, 1.5])
+                    c1.markdown(f"**{item['name']}**")
+                    c2.caption(f"Creato il: {item['created_at']}")
+                    if c3.button("Apri", key=f"open_{item['id']}"):
+                        ss["chat_history"] = list(item["history"])  # ripristina in chat
+                        st.session_state["nav"] = "Chat"
+                        st.rerun()
+                    if c4.button("Elimina", key=f"del_{item['id']}"):
+                        ss["saved_chats"].pop(i)
+                        st.rerun()
+
+        st.divider()
+        st.caption("Suggerimento: apri un salvataggio per riprendere la conversazione da dove l'hai lasciata.")
