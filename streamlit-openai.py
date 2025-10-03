@@ -122,21 +122,28 @@ def fmt_ts(ts_raw: str) -> str:
 
 def highlight_nth(text: str, q: str, global_idx: int):
     escaped = html.escape(text)
-    if not q:
+
+    # se non c'è query o abbiamo già evidenziato (sentinella -1) → non evidenziare altro
+    if not q or (isinstance(global_idx, int) and global_idx < 0):
         return escaped.replace("\n", "<br>"), global_idx
+
     pat = re.compile(re.escape(q), re.IGNORECASE)
     matches = list(pat.finditer(escaped))
     if not matches:
         return escaped.replace("\n", "<br>"), global_idx
+
     if global_idx < len(matches):
+        # evidenzia SOLO la occorrenza 'global_idx' in QUESTO messaggio
         parts, last_end = [], 0
         for i, m in enumerate(matches):
             parts.append(escaped[last_end:m.start()])
             parts.append(f"<mark>{m.group(0)}</mark>" if i == global_idx else m.group(0))
             last_end = m.end()
         parts.append(escaped[last_end:])
-        return "".join(parts).replace("\n", "<br>"), 0
+        # torna -1 = “fatto”, gli altri messaggi NON evidenzieranno nulla
+        return "".join(parts).replace("\n", "<br>"), -1
     else:
+        # salta tutte le occorrenze di questo messaggio
         return escaped.replace("\n", "<br>"), global_idx - len(matches)
 
 def _slugify_ascii(s: str) -> str:
@@ -263,16 +270,6 @@ ss.setdefault("nav", "Chat")
 ss.setdefault("search_index", 0)
 ss.setdefault("last_search_q", "")
 
-# Recupero UPN/email utente
-user_upn = ss.get("user_upn")
-user_upn = st.text_input(
-    "Email utente (UPN)",
-    value=user_upn or "",
-    placeholder="nome.cognome@cdcraee.it"
-)
-if user_upn:
-    ss["user_upn"] = user_upn.strip().lower()
-
 # --------- STYLE ---------
 CSS = """
 <style>
@@ -283,20 +280,15 @@ CSS = """
   --top-offset: 0px;
 }
 
-.block-container {
-  max-width: 1200px;
-  min-height: 100vh;
-  position: relative;
-  overflow: visible;
+/* Fascia sinistra + bordo, sempre allineata all'intera pagina */
+.stApp{
+  background-image:
+    linear-gradient(to right, #ffffff 0, #ffffff 32%, rgba(255,255,255,0) 32%),
+    linear-gradient(to right, #e5e7eb, #e5e7eb);
+  background-repeat: no-repeat, no-repeat;
+  background-size: 100% 100%, 1px 100%;
+  background-position: 0 0, 32% 0; /* 32% = stessa larghezza della tua colonna sinistra */
 }
-
-/* fascia bianca sinistra: ora su .stApp e fixed, così segue sempre lo scroll */
-.stApp::before{
-  content:""; position:fixed; top:0; bottom:0; left:0;
-  width:32%; background:#ffffff; box-shadow:inset -1px 0 0 #e5e7eb;
-  pointer-events:none; z-index:0;
-}
-.block-container > *{ position:relative; z-index:1; }
 
 .chat-card{
   border:1px solid #e6eaf0;
@@ -354,13 +346,12 @@ label[data-baseweb="radio"]:has(input:checked) *{color:#ffffff !important;}
 .stButton>button{border:1px solid #2F98C7 !important;color:#2F98C7 !important;background:#fff !important;border-radius:8px !important;}
 .stButton>button:hover{background:#eef5ff !important;}
 
-/* Blocca la colonna sinistra ma permetti crescita oltre 100vh */
+/* Colonna sinistra: nessuno sticky, cresce come il contenuto */
 div[data-testid="column"] > div:first-child {
-  position: sticky;
-  top: 0;
-  min-height: 100vh;  /* almeno viewport */
-  height: auto;       /* consente crescita */
-  overflow: visible;  /* niente scroll forzato interno */
+  position: static;
+  min-height: 0;
+  height: auto;
+  overflow: visible;
 }
 
 /* Permetti lo scroll globale */
@@ -401,11 +392,15 @@ with left:
     st.markdown("<div style='flex-grow:1'></div>", unsafe_allow_html=True)
     colA, colB = st.columns(2)
     with colA:
-        try: st.image('images/logoRAEE.png', width=80)
-        except Exception: st.markdown('')
+        try:
+            st.image('images/logoRAEE.png', width=80)
+        except Exception:
+            st.markdown('')
     with colB:
-        try: st.image('images/logoNPA.png', width=80)
-        except Exception: st.markdown('')
+        try:
+            st.image('images/logoNPA.png', width=80)
+        except Exception:
+            st.markdown('')
 
 # ===== RIGHT PANE =====
 with right:
@@ -452,6 +447,16 @@ with right:
         # ======= SEZIONE: Upload per-utente con SAS =======
         st.divider()
         with st.expander("📂 Carica un nuovo documento"):
+            # Campo email contestualizzato QUI dentro
+            upn_val = st.text_input(
+                "Email utente (UPN)",
+                value=ss.get("user_upn", ""),
+                placeholder="nome.cognome@cdcraee.it",
+                key="user_upn"
+            )
+            if upn_val:
+                ss["user_upn"] = upn_val.strip().lower()
+
             if ss.get("user_upn"):
                 uploaded = st.file_uploader(
                     "Seleziona un file da caricare nel tuo contenitore personale",
@@ -460,33 +465,20 @@ with right:
                 )
 
                 if uploaded is not None:
-                    # Nome blob: prefisso 'uploads/' + timestamp + nome originale
                     blob_name = f"uploads/{int(dt.datetime.utcnow().timestamp())}_{uploaded.name}"
-
                     try:
-                        # URL SAS per il container derivato dall'email (UPN)
                         upload_url = sas_for_user_blob(
                             ss["user_upn"],
                             blob_name,
                             ttl_minutes=15
                         )
-
                         st.success(f"SAS generata per {ss['user_upn']}")
                         st.write("URL (valida 15 minuti):")
                         st.code(upload_url, language="text")
-
-                        # Esempio di upload diretto via requests (opzionale)
-                        # import requests
-                        # r = requests.put(upload_url, data=uploaded.getvalue(), headers={"x-ms-blob-type": "BlockBlob"})
-                        # if r.status_code in (201, 202):
-                        #     st.success("Upload completato!")
-                        # else:
-                        #     st.error(f"Errore upload: {r.status_code} - {r.text}")
-
                     except Exception as e:
                         st.error(f"Impossibile generare la SAS: {e}")
             else:
-                st.warning("Inserisci l'email utente (UPN) in alto per generare la SAS del tuo contenitore.")
+                st.warning("Inserisci l'email utente (UPN) qui sopra per generare la SAS del tuo contenitore.")
 
     # ======= CHAT =======
     elif nav == 'Chat':
@@ -592,7 +584,7 @@ with right:
         # Corpo messaggi (render solo se esistono)
         if ss["chat_history"]:
             st.markdown('<div class="chat-body" id="chat-body">', unsafe_allow_html=True)
-            remaining_idx = (ss.search_index % total_matches) if (search_q and total_matches > 0) else 0
+            remaining_idx = (ss.search_index % total_matches) if (search_q and total_matches > 0) else -1
             for m in ss["chat_history"]:
                 role = m['role']
                 raw_text = m.get('content','')
