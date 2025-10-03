@@ -10,7 +10,7 @@ from azure.core.credentials import AzureKeyCredential
 from azure.storage.blob import BlobServiceClient, BlobSasPermissions, generate_blob_sas
 from io import BytesIO  # per eventuali export futuri
 import base64 as _b64, posixpath as _pp
-from urllib.parse import urlparse as _urlparse, urlunparse as _urlunparse, unquote as _unquote
+from urllib.parse import urlparse as _urlparse, urlunparse as _url_unparse, unquote as _unquote
 
 # ======================= APP CONFIG =======================
 st.set_page_config(page_title='EasyLook.DOC Chat', page_icon='💬', layout='wide')
@@ -66,7 +66,7 @@ def clean_azure_blob_url(url: str) -> str:
     """Rimuove query/SAS e lascia solo schema+host+path."""
     try:
         u = _urlparse(url)
-        return _urlunparse((u.scheme, u.netloc, u.path, "", "", ""))
+        return _url_unparse((u.scheme, u.netloc, u.path, "", "", ""))
     except Exception:
         return url
 
@@ -345,8 +345,19 @@ with left:
         "💬 Chat": "Chat",
         "🕒 Cronologia": "Cronologia",
     }
-    choice = st.radio('', list(labels.keys()), index=1)
+
+    # RADIO stateful: segue ss["nav"]
+    keys = list(labels.keys())
+    values = list(labels.values())
+    current_nav = ss.get("nav", "Chat")
+    try:
+        default_idx = values.index(current_nav)
+    except ValueError:
+        default_idx = 1  # fallback: Chat
+
+    choice = st.radio('', keys, index=default_idx)
     nav = labels[choice]
+    ss["nav"] = nav
 
     spacer(10)
     st.markdown("<div style='flex-grow:1'></div>", unsafe_allow_html=True)
@@ -385,8 +396,8 @@ with right:
                 if not paths:
                     st.info("Nessun documento trovato nell'indice (controlla che il campo sia facetable e l'indice popolato).")
                 else:
-                    # Costruisco coppie (nome_legibile, path) per evitare ambiguità in caso di nomi duplicati
-                    display_items = [(normalize_source_id(p)[1], p) for p in paths]
+                    import os as _os
+                    display_items = [(_os.path.basename(p.rstrip("/")) or p, p) for p in paths]
                     names = [n for n, _ in display_items]
 
                     # Opzione per nessun filtro
@@ -403,6 +414,7 @@ with right:
                         "Seleziona documento", options, index=default_idx, key="doc_select"
                     )
 
+                    # logica semplificata
                     if selected_label == ALL_OPT:
                         if ss.get("active_doc") is not None:
                             ss["active_doc"] = None
@@ -412,12 +424,6 @@ with right:
                         if selected_path != ss.get("active_doc"):
                             ss["active_doc"] = selected_path
                             st.success(f"Filtro attivo su: {selected_label}")
-
-                    # (opzionale) bottone che sincronizza anche la select
-                    if st.button("Usa tutti i documenti (rimuovi filtro)"):
-                        ss["active_doc"] = None
-                        ss["doc_select"] = ALL_OPT
-                        st.rerun()
 
             except Exception as e:
                 st.error(f"Errore nel recupero dell'elenco documenti: {e}")
@@ -501,24 +507,35 @@ with right:
 
         # --- Form di salvataggio (mostrato quando richiesto) ---
         if ss.get("save_open"):
+            # inizializza una sola volta il nome di default
+            if "save_name" not in ss or not ss["save_name"]:
+                ss["save_name"] = f"Chat del {ts_now_it()}"
+
             with st.form("save_chat_form", clear_on_submit=False):
-                default_name = f"Chat del {ts_now_it()}"
-                save_name = st.text_input("Nome del salvataggio", value=default_name, help="Dai un nome a questa chat")
+                # usa una key stabile, niente value dinamico
+                st.text_input(
+                    "Nome del salvataggio",
+                    key="save_name",
+                    help="Dai un nome a questa chat"
+                )
                 do_save = st.form_submit_button("Conferma salvataggio")
             if do_save:
                 if not ss['chat_history']:
                     st.warning("Non c'è nulla da salvare: la chat è vuota.")
                 else:
                     import uuid
+                    name = (ss.get("save_name") or "").strip() or f"Chat del {ts_now_it()}"
                     entry = {
                         "id": str(uuid.uuid4()),
-                        "name": save_name.strip() or default_name,
+                        "name": name,
                         "created_at": ts_now_it(),
                         "history": list(ss['chat_history'])  # copia
                     }
                     ss['saved_chats'].insert(0, entry)  # in cima alla lista
                     ss["save_open"] = False
+                    ss["save_name"] = ""  # reset per la prossima volta
                     st.success(f"Chat salvata come: {entry['name']}")
+                    st.caption(f"Totale salvataggi: {len(ss['saved_chats'])}")
 
         # ---------------- CHAT CARD ----------------
         st.markdown('<div class="chat-card">', unsafe_allow_html=True)
@@ -697,7 +714,7 @@ with right:
                     c2.caption(f"Creato il: {item['created_at']}")
                     if c3.button("Apri", key=f"open_{item['id']}"):
                         ss["chat_history"] = list(item["history"])  # ripristina in chat
-                        st.session_state["nav"] = "Chat"
+                        ss["nav"] = "Chat"  # reindirizza alla pagina Chat
                         st.rerun()
                     if c4.button("Elimina", key=f"del_{item['id']}"):
                         ss["saved_chats"].pop(i)
