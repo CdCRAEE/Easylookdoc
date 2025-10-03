@@ -463,7 +463,7 @@ with right:
                     st.info("Nessun documento trovato nell'indice (controlla che il campo sia facetable e l'indice popolato).")
                 else:
                     import os as _os
-                    display = [_os.path.basename(p.rstrip("/")) or p for p in paths]
+display = [normalize_source_id(p) for p in paths]
                     idx = paths.index(ss["active_doc"]) if ss.get("active_doc") in paths else 0
                     selected_label = st.selectbox("Seleziona documento", display, index=idx)
                     selected_path = paths[display.index(selected_label)]
@@ -690,7 +690,8 @@ if sent and user_q.strip():
 
         # elenco fonti (link markdown "Nome" -> URL pulito)
         if sources:
-            links = [f"[{s['name']}]({s['url']})" for s in sources[:6]]
+visible_names = ', '.join([s['name'] for s in sources[:6]])
+ai_text += f"\n\n📎 Fonti: {visible_names}"
             ai_text += "\n\n— 📎 Fonti: " + ", ".join(links)
 
         ss['chat_history'].append({'role': 'assistant', 'content': ai_text, 'ts': ts_now_it()})
