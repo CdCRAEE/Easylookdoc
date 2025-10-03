@@ -8,7 +8,7 @@ from openai import AzureOpenAI
 from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
-from azure.storage.blob import BlobServiceClient, BlobSasPermissions, generate_blob_sas, ContentSettings
+from azure.storage.blob import BlobServiceClient, BlobSasPermissions, generate_blob_sas
 from io import BytesIO # usato per eventuali export futuri
 st.set_page_config(page_title='EasyLook.DOC Chat', page_icon='💬', layout='wide')
 
@@ -225,25 +225,6 @@ def sas_for_user_blob(upn: str, blob_name: str, ttl_minutes: int = 15) -> str:
     ensure_container(svc, container)
     # Riusa la tua funzione esistente per creare la SAS
     return make_upload_sas(container, blob_name, ttl_minutes=ttl_minutes)
-
-def upload_to_user_container(upn: str, blob_name: str, data: bytes, content_type: str) -> str:
-    """
-    Carica il file direttamente dal backend usando AAD (DefaultAzureCredential).
-    Richiede il ruolo 'Storage Blob Data Contributor' o superiore sullo storage account/container.
-    Ritorna l'URL del blob.
-    """
-    svc = _svc()
-    container = upn_to_container(upn)
-    ensure_container(svc, container)
-    bc = svc.get_blob_client(container=container, blob=blob_name)
-    bc.upload_blob(
-        data,
-        overwrite=True,
-        content_settings=ContentSettings(content_type=content_type or "application/octet-stream"),
-    )
-    return f"https://{ACCOUNT_NAME}.blob.core.windows.net/{container}/{blob_name}"
-
-
 
 # --------- CLIENTS ---------
 try:
@@ -463,7 +444,7 @@ with right:
                     st.info("Nessun documento trovato nell'indice (controlla che il campo sia facetable e l'indice popolato).")
                 else:
                     import os as _os
-display = [normalize_source_id(p) for p in paths]
+                    display = [_os.path.basename(p.rstrip("/")) or p for p in paths]
                     idx = paths.index(ss["active_doc"]) if ss.get("active_doc") in paths else 0
                     selected_label = st.selectbox("Seleziona documento", display, index=idx)
                     selected_path = paths[display.index(selected_label)]
@@ -487,23 +468,33 @@ display = [normalize_source_id(p) for p in paths]
                 )
 
                 if uploaded is not None:
+                    # Nome blob: prefisso 'uploads/' + timestamp + nome originale
                     blob_name = f"uploads/{int(dt.datetime.utcnow().timestamp())}_{uploaded.name}"
+
                     try:
-                        blob_url = upload_to_user_container(
+                        # URL SAS per il container derivato dall'email (UPN)
+                        upload_url = sas_for_user_blob(
                             ss["user_upn"],
                             blob_name,
-                            uploaded.getvalue(),
-                            uploaded.type,
+                            ttl_minutes=15
                         )
-                        st.success("Upload completato!")
-                        st.write("File caricato su:")
-                        st.code(blob_url, language="text")
-                        st.caption("Upload eseguito dal backend con AAD (niente SAS).")
+
+                        st.success(f"SAS generata per {ss['user_upn']}")
+                        st.write("URL (valida 15 minuti):")
+                        st.code(upload_url, language="text")
+
+                        # Se vuoi caricare direttamente dal backend Streamlit, puoi fare una PUT:
+                        # import requests
+                        # r = requests.put(upload_url, data=uploaded.getvalue(), headers={"x-ms-blob-type": "BlockBlob"})
+                        # if r.status_code in (201, 202):
+                        #     st.success("Upload completato!")
+                        # else:
+                        #     st.error(f"Errore upload: {r.status_code} - {r.text}")
+
                     except Exception as e:
-                        st.error(f"Upload fallito: {e}")
-                        st.caption("Verifica che l'identità che esegue l'app abbia il ruolo 'Storage Blob Data Contributor'.")
+                        st.error(f"Impossibile generare la SAS: {e}")
             else:
-                st.warning("Inserisci l'email utente (UPN) in alto per caricare nel tuo contenitore.")
+                st.warning("Inserisci l'email utente (UPN) in alto per generare la SAS del tuo contenitore.")
 
     # ======= CHAT =======
     elif nav == 'Chat':
@@ -514,103 +505,18 @@ display = [normalize_source_id(p) for p in paths]
         else:
             st.info("Azure Search non configurato: risponderò senza contesto.")
 
-        # --- Ricerca nella chat (con navigazione match) ---
-        search_q = st.text_input("🔎 Cerca nella chat", value="", placeholder="Cerca messaggi…")
-        if search_q != ss.last_search_q:
-            ss.search_index = 0
-            ss.last_search_q = search_q
-
-        # Utility richieste (destra)
-        colu1, colu2, _ = st.columns([2,2,4])
-        with colu1:
-            if st.button("Svuota chat"):
-                ss['chat_history'] = []
-                st.rerun()
-        with colu2:
-            if st.button("Esporta chat (.md)"):
-                if ss['chat_history']:
-                    md_lines = ["# Conversazione\n"]
-                    for m in ss['chat_history']:
-                        who = "Utente" if m['role'] == 'user' else "Assistente"
-                        ts = m.get('ts', '')
-                        md_lines.append(f"**{who}** ({ts}):\n\n{m.get('content','')}\n")
-                    md_str = "\n".join(md_lines)
-                    st.download_button(
-                        "Scarica .md",
-                        data=md_str,
-                        file_name="chat_export.md",
-                        mime="text/markdown"
-                    )
-
-        # --- Navigatori ricerca compatti, su UNA riga e sopra il separatore ---
-        if search_q:
-            def count_occurrences(text: str, q: str) -> int:
-                if not q: return 0
-                return len(re.findall(re.escape(q), text, flags=re.IGNORECASE))
-            total_matches = sum(count_occurrences(m.get("content",""), search_q) for m in ss["chat_history"])
-            st.caption(f"Risultati totali: {total_matches}")
-            if total_matches > 0:
-                st.markdown("<div id='search-nav'>", unsafe_allow_html=True)
-                c1, c2, c3 = st.columns([0.18, 0.18, 0.64])
-                with c1:
-                    if st.button("◀️ Precedente", key="nav_prev"):
-                        ss.search_index = (ss.search_index - 1) % total_matches
-                with c2:
-                    if st.button("▶️ Successivo", key="nav_next"):
-                        ss.search_index = (ss.search_index + 1) % total_matches
-                with c3:
-                    st.markdown(
-                        f"<div class='counter'>Match corrente: <strong>{(ss.search_index % total_matches) + 1} / {total_matches}</strong></div>",
-                        unsafe_allow_html=True
-                    )
-                st.markdown("</div>", unsafe_allow_html=True)
-            else:
-                st.caption("Nessun risultato per questa ricerca.")
-        else:
-            total_matches = 0
-            ss.search_index = 0
-
-        # ---------------- CHAT CARD ----------------
+        # ---------------- CHAT CARD (scroll SOLO nel corpo chat) ----------------
         st.markdown('<div class="chat-card">', unsafe_allow_html=True)
-
-        # Script di misura altezza/offset — messo DOPO che la card esiste
-        components.html("""
-        <script>
-        (function(){
-          function setVH(){
-            const h = window.innerHeight || document.documentElement.clientHeight;
-            (window.parent.document || document).documentElement.style.setProperty('--vh', h + 'px');
-          }
-          function setTopOffset(){
-            const doc = window.parent.document || document;
-            const card = doc.querySelector('.chat-card');
-            if(!card) return;
-            const rect = card.getBoundingClientRect();
-            doc.documentElement.style.setProperty('--top-offset', Math.max(0, Math.round(rect.top)) + 'px');
-          }
-          function recompute(){ setVH(); setTopOffset(); }
-          recompute();
-          window.addEventListener('resize', recompute);
-          const target = (window.parent && window.parent.document) ? window.parent.document.body : document.body;
-          if (target && 'ResizeObserver' in window){ new ResizeObserver(recompute).observe(target); }
-        })();
-        </script>
-        """, height=0)
-
         st.markdown('<div class="chat-header">Conversazione</div>', unsafe_allow_html=True)
 
-        # Corpo messaggi (render solo se esistono)
+        # Corpo messaggi con scroll
+        st.markdown('<div class="chat-body" id="chat-body">', unsafe_allow_html=True)
         if ss["chat_history"]:
-            st.markdown('<div class="chat-body" id="chat-body">', unsafe_allow_html=True)
-            remaining_idx = (ss.search_index % total_matches) if (search_q and total_matches > 0) else 0
             for m in ss["chat_history"]:
-                role = m['role']
-                raw_text = m.get('content','')
-                if search_q and total_matches > 0:
-                    content_html, remaining_idx = highlight_nth(raw_text, search_q, remaining_idx)
-                else:
-                    content_html = html.escape(raw_text).replace("\n","<br>")
-                ts = fmt_ts(m.get('ts',''))
+                role = m.get('role','assistant')
+                raw = m.get('content','')
+                ts = m.get('ts','')
+                content_html = html.escape(raw).replace("\n","<br>")
                 if role == 'user':
                     st.markdown(f"""
                         <div class='msg-row' style='justify-content:flex-end;'>
@@ -623,9 +529,11 @@ display = [normalize_source_id(p) for p in paths]
                           <div class='avatar ai'>A</div>
                           <div class='msg ai'>{content_html}<div class='meta'>{ts}</div></div>
                         </div>""", unsafe_allow_html=True)
-            st.markdown('</div>', unsafe_allow_html=True)  # chiude chat-body
+        else:
+            st.markdown("<div class='small'>Nessun messaggio ancora.</div>", unsafe_allow_html=True)
+        st.markdown('</div>', unsafe_allow_html=True)  # chiude chat-body
 
-        # Footer input SEMPRE visibile
+        # Footer input SEMPRE visibile (variabili usate dal blocco Invio sottostante)
         typing_ph = st.empty()
         st.markdown('<div class="chat-footer">', unsafe_allow_html=True)
         with st.form(key="chat_form", clear_on_submit=True):
@@ -634,72 +542,66 @@ display = [normalize_source_id(p) for p in paths]
         st.markdown('</div>', unsafe_allow_html=True)   # chiude chat-footer
         st.markdown('</div>', unsafe_allow_html=True)   # chiude chat-card
 
-        # autoscroll nel box chat
+        # autoscroll nel box chat (solo corpo chat)
         components.html("""
             <script>
               const el = window.parent.document.getElementById('chat-body');
               if (el) { el.scrollTop = el.scrollHeight; }
             </script>
         """, height=0)
-
-# --- Invio: Azure Search (contesto) + modello ---
-if sent and user_q.strip():
-    ss['chat_history'].append({'role': 'user', 'content': user_q.strip(), 'ts': ts_now_it()})
-
-    # RICERCA NEL MOTORE (con eventuale filtro documento attivo)
-    context_snippets, sources = [], []
-    try:
-        if not search_client:
-            st.warning("Azure Search non disponibile. Risposta senza contesto.")
-        else:
-            flt = safe_filter_eq(FILENAME_FIELD, ss.get("active_doc")) if ss.get("active_doc") else None
-            results = search_client.search(
-                search_text=user_q,
-                filter=flt,
-                top=5,
-                query_type="simple",
-            )
-            seen = set()
-            for r in results:
-                snippet = r.get("chunk") or r.get("content") or r.get("text")
-                if snippet:
-                    context_snippets.append(str(snippet)[:400])
-
-                raw_id = r.get(FILENAME_FIELD)
-                if raw_id:
-                    url, name = normalize_source_id(str(raw_id))
-                    key = (url or "").lower()
-                    if key not in seen:
-                        seen.add(key)
-                        sources.append({"url": url, "name": name})
-    except Exception as e:
-        st.error(f"Errore ricerca: {e}")
-
-    # CHIAMATA MODELLO con contesto
-    try:
-        messages = build_chat_messages(user_q, context_snippets)
-        with typing_ph, st.spinner("Sto scrivendo…"):
-            resp = client.chat.completions.create(
-                model=AZURE_OPENAI_DEPLOYMENT,
-                messages=messages,
-                temperature=0.2,
-                max_tokens=900,
-            )
-        typing_ph.empty()
-        ai_text = resp.choices[0].message.content if resp.choices else "(nessuna risposta)"
-
-        # elenco fonti (link markdown "Nome" -> URL pulito)
-        if sources:
-visible_names = ', '.join([s['name'] for s in sources[:6]])
-ai_text += f"\n\n📎 Fonti: {visible_names}"
-            ai_text += "\n\n— 📎 Fonti: " + ", ".join(links)
-
-        ss['chat_history'].append({'role': 'assistant', 'content': ai_text, 'ts': ts_now_it()})
-    except Exception as e:
-        typing_ph.empty()
-        ss['chat_history'].append({
-            'role': 'assistant',
-            'content': f"Si è verificato un errore durante la generazione della risposta: {e}",
-            'ts': ts_now_it()
-        })
-    st.rerun()
+        # --- Invio: Azure Search (contesto) + modello ---
+        if sent and user_q.strip():
+            ss['chat_history'].append({'role':'user','content':user_q.strip(),'ts':ts_now_it()})
+        
+            # RICERCA NEL MOTORE (con eventuale filtro documento attivo)
+            context_snippets, sources = [], []
+            try:
+                if not search_client:
+                    st.warning("Azure Search non disponibile. Risposta senza contesto.")
+                else:
+                    flt = safe_filter_eq(FILENAME_FIELD, ss.get("active_doc")) if ss.get("active_doc") else None
+                    results = search_client.search(
+                        search_text=user_q,
+                        filter=flt,
+                        top=5,
+                        query_type="simple",
+                    )
+                    seen = set()
+                    for r in results:
+                        snippet = r.get("chunk") or r.get("content") or r.get("text")
+                        if snippet:
+                            context_snippets.append(str(snippet)[:400])
+        
+                        raw_id = r.get(FILENAME_FIELD)
+                        if raw_id:
+                            url, name = normalize_source_id(str(raw_id))
+                            key = (url or "").lower()
+                            if key not in seen:
+                                seen.add(key)
+                                sources.append({"url": url, "name": name})
+            except Exception as e:
+                st.error(f"Errore ricerca: {e}")
+        
+            # CHIAMATA MODELLO con contesto
+            try:
+                messages = build_chat_messages(user_q, context_snippets)
+                with typing_ph, st.spinner("Sto scrivendo…"):
+                    resp = client.chat.completions.create(
+                        model=AZURE_OPENAI_DEPLOYMENT,
+                        messages=messages,
+                        temperature=0.2,
+                        max_tokens=900,
+                    )
+                typing_ph.empty()
+                ai_text = resp.choices[0].message.content if resp.choices else "(nessuna risposta)"
+        
+                # elenco fonti (link markdown "Nome" -> URL pulito)
+                if sources:
+                    links = [f"[{s['name']}]({s['url']})" for s in sources[:6]]
+                    ai_text += "\n\n— 📎 Fonti: " + ", ".join(links)
+        
+                ss['chat_history'].append({'role':'assistant','content':ai_text,'ts':ts_now_it()})
+            except Exception as e:
+                typing_ph.empty()
+                ss['chat_history'].append({'role':'assistant','content':f"Si è verificato un errore durante la generazione della risposta: {e}",'ts':ts_now_it()})
+            st.rerun()
