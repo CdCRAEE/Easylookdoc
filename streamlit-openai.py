@@ -8,7 +8,7 @@ from openai import AzureOpenAI
 from azure.identity import ClientSecretCredential, DefaultAzureCredential
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
-from azure.storage.blob import BlobServiceClient, BlobSasPermissions, generate_blob_sas
+from azure.storage.blob import BlobServiceClient, BlobSasPermissions, generate_blob_sas, ContentSettings
 from io import BytesIO # usato per eventuali export futuri
 st.set_page_config(page_title='EasyLook.DOC Chat', page_icon='💬', layout='wide')
 
@@ -225,6 +225,25 @@ def sas_for_user_blob(upn: str, blob_name: str, ttl_minutes: int = 15) -> str:
     ensure_container(svc, container)
     # Riusa la tua funzione esistente per creare la SAS
     return make_upload_sas(container, blob_name, ttl_minutes=ttl_minutes)
+
+def upload_to_user_container(upn: str, blob_name: str, data: bytes, content_type: str) -> str:
+    """
+    Carica il file direttamente dal backend usando AAD (DefaultAzureCredential).
+    Richiede il ruolo 'Storage Blob Data Contributor' o superiore sullo storage account/container.
+    Ritorna l'URL del blob.
+    """
+    svc = _svc()
+    container = upn_to_container(upn)
+    ensure_container(svc, container)
+    bc = svc.get_blob_client(container=container, blob=blob_name)
+    bc.upload_blob(
+        data,
+        overwrite=True,
+        content_settings=ContentSettings(content_type=content_type or "application/octet-stream"),
+    )
+    return f"https://{ACCOUNT_NAME}.blob.core.windows.net/{container}/{blob_name}"
+
+
 
 # --------- CLIENTS ---------
 try:
@@ -468,33 +487,23 @@ with right:
                 )
 
                 if uploaded is not None:
-                    # Nome blob: prefisso 'uploads/' + timestamp + nome originale
                     blob_name = f"uploads/{int(dt.datetime.utcnow().timestamp())}_{uploaded.name}"
-
                     try:
-                        # URL SAS per il container derivato dall'email (UPN)
-                        upload_url = sas_for_user_blob(
+                        blob_url = upload_to_user_container(
                             ss["user_upn"],
                             blob_name,
-                            ttl_minutes=15
+                            uploaded.getvalue(),
+                            uploaded.type,
                         )
-
-                        st.success(f"SAS generata per {ss['user_upn']}")
-                        st.write("URL (valida 15 minuti):")
-                        st.code(upload_url, language="text")
-
-                        # Se vuoi caricare direttamente dal backend Streamlit, puoi fare una PUT:
-                        # import requests
-                        # r = requests.put(upload_url, data=uploaded.getvalue(), headers={"x-ms-blob-type": "BlockBlob"})
-                        # if r.status_code in (201, 202):
-                        #     st.success("Upload completato!")
-                        # else:
-                        #     st.error(f"Errore upload: {r.status_code} - {r.text}")
-
+                        st.success("Upload completato!")
+                        st.write("File caricato su:")
+                        st.code(blob_url, language="text")
+                        st.caption("Upload eseguito dal backend con AAD (niente SAS).")
                     except Exception as e:
-                        st.error(f"Impossibile generare la SAS: {e}")
+                        st.error(f"Upload fallito: {e}")
+                        st.caption("Verifica che l'identità che esegue l'app abbia il ruolo 'Storage Blob Data Contributor'.")
             else:
-                st.warning("Inserisci l'email utente (UPN) in alto per generare la SAS del tuo contenitore.")
+                st.warning("Inserisci l'email utente (UPN) in alto per caricare nel tuo contenitore.")
 
     # ======= CHAT =======
     elif nav == 'Chat':
