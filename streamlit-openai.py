@@ -75,10 +75,8 @@ def clean_azure_blob_url(url: str) -> str:
         return url
 
 def display_name_from_url(url: str) -> str:
-    """Basename decodificato (es. Manuale%20Operativo.pdf -> Manuale Operativo.pdf)."""
-    u = _urlparse(url)
-    base = _pp.basename(u.path) or u.path.strip("/")
-    return _unquote(base) or url
+    base = _pp.basename(url.rstrip("/")) or url.strip("/")
+    return _unquote(base).replace("_", " ").replace("-", " ")
 
 def normalize_source_id(raw: str) -> tuple[str, str]:
     """
@@ -290,12 +288,11 @@ CSS = """
   --top-offset: 0px;
 }
 
-/* pagina fissa + no scroll globale */
-html, body{ height:100%; overflow:hidden; }
-.stApp{ height:100vh; overflow:hidden !important; background:#f5f7fa !important; }
-.block-container{
-  max-width:1200px; min-height:100vh; height:100vh;
-  position:relative; overflow:hidden;
+.block-container {
+  max-width: 1200px;
+  min-height: 100vh;
+  position: relative;
+  overflow: visible;
 }
 
 /* fascia bianca sinistra coerente con colonna */
@@ -368,6 +365,20 @@ label[data-baseweb="radio"]:has(input:checked) *{color:#ffffff !important;}
 }
 .stButton>button:hover{
   background:#eef5ff !important;
+}
+
+/* Blocca la colonna sinistra */
+div[data-testid="column"] > div:first-child {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+
+/* Permetti lo scroll globale */
+html, body, .stApp {
+  height: auto !important;
+  overflow: auto !important;
 }
 
 /* --- NAV ricerca compatta --- */
@@ -444,7 +455,7 @@ with right:
                     st.info("Nessun documento trovato nell'indice (controlla che il campo sia facetable e l'indice popolato).")
                 else:
                     import os as _os
-                    display = [_os.path.basename(p.rstrip("/")) or p for p in paths]
+                    display = [display_name_from_url(p) for p in paths]
                     idx = paths.index(ss["active_doc"]) if ss.get("active_doc") in paths else 0
                     selected_label = st.selectbox("Seleziona documento", display, index=idx)
                     selected_path = paths[display.index(selected_label)]
